@@ -117,9 +117,7 @@ export function getAuthOptions(): NextAuthOptions {
 
           if (!user.emailVerified) return null;
 
-          const requireOtp =
-            env.AUTH_REQUIRE_LOGIN_OTP !== "false" || user.mfaEnabled;
-          if (requireOtp) {
+          if (user.mfaEnabled) {
             if (!otp) return null;
             const ok = await consumeOtpCode({
               db,

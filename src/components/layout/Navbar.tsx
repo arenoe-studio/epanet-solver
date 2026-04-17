@@ -91,7 +91,7 @@ export function Navbar() {
     return [
       { href: "/#how-it-works", label: "Cara Kerja", external: false },
       { href: "/#pricing", label: "Pricing", external: false },
-      { href: "/docs", label: "Dokumentasi", external: true },
+      { href: "/docs", label: "Dokumentasi", external: false },
     ];
   }, [isLoggedIn]);
 

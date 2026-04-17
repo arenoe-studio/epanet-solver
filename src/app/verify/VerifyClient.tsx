@@ -80,10 +80,10 @@ export function VerifyClient(props: { initialEmail: string }) {
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-16">
       <div className="mx-auto max-w-md rounded-3xl border border-border-lavender bg-white p-8 shadow-elevated">
         <h1 className="text-2xl font-bold tracking-[-0.03em] text-expo-black">
-          Verifikasi Email
+          Aktivasi Akun
         </h1>
         <p className="mt-2 text-sm text-slate-gray">
-          Masukkan kode 6 digit yang dikirim ke email Anda.
+          Masukkan kode 6 digit yang dikirim ke email Anda untuk mengaktifkan akun.
         </p>
 
         <div className="mt-6 space-y-4">

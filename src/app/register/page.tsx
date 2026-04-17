@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -14,6 +14,18 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("register_prefill");
+      if (raw) {
+        const { email: e, password: p } = JSON.parse(raw);
+        if (e) setEmail(e);
+        if (p) setPassword(p);
+        sessionStorage.removeItem("register_prefill");
+      }
+    } catch {}
+  }, []);
 
   async function onRegister() {
     if (loading) return;

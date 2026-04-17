@@ -14,70 +14,81 @@ export function LoginClient(props: { callbackUrl: string }) {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (status === "authenticated") router.replace(props.callbackUrl);
   }, [props.callbackUrl, router, status]);
 
-  async function requestCode() {
-    if (sending) return;
-    setSending(true);
-    try {
-      const res = await fetch("/api/auth/request-login-code", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password })
-      });
-      const json = (await res.json()) as any;
-      if (!res.ok) {
-        push({
-          title: "Gagal kirim kode",
-          description: json?.error ?? "Terjadi kesalahan.",
-          variant: "error"
-        });
-        setSending(false);
-        return;
-      }
-      push({
-        title: "Kode terkirim",
-        description: "Cek inbox/spam email Anda.",
-        variant: "success"
-      });
-    } catch {
-      push({ title: "Gagal kirim kode", variant: "error" });
-    } finally {
-      setSending(false);
-    }
-  }
-
   async function onLogin() {
     if (loading) return;
     setLoading(true);
     try {
+      // Pre-check: deteksi kondisi khusus sebelum signIn
+      const checkRes = await fetch("/api/auth/check-credentials", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const checkJson = (await checkRes.json()) as any;
+
+      // Kondisi 1: Email belum terdaftar → arahkan ke halaman daftar
+      if (checkRes.status === 401 && checkJson?.notRegistered) {
+        sessionStorage.setItem(
+          "register_prefill",
+          JSON.stringify({ email, password })
+        );
+        push({
+          title: "Akun tidak ditemukan",
+          description: "Mengarahkan ke halaman pendaftaran...",
+          variant: "error",
+        });
+        router.push("/register");
+        return;
+      }
+
+      // Kondisi 2: Sudah daftar tapi belum aktivasi → arahkan ke halaman verifikasi
+      if (checkRes.status === 403 && checkJson?.notVerified) {
+        push({
+          title: "Akun belum diaktivasi",
+          description: "Selesaikan verifikasi email untuk mengaktifkan akun Anda.",
+          variant: "error",
+        });
+        router.push(`/verify?email=${encodeURIComponent(email)}`);
+        return;
+      }
+
+      if (!checkRes.ok) {
+        push({
+          title: "Login gagal",
+          description: checkJson?.error ?? "Email atau password salah.",
+          variant: "error",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Credentials valid → langsung login
       const res = await signIn("credentials", {
         redirect: false,
         callbackUrl: props.callbackUrl,
         email,
         password,
-        otp: code
       });
+
       if (!res?.ok) {
         push({
           title: "Login gagal",
-          description:
-            "Pastikan email sudah diverifikasi, password benar, dan kode login terbaru masih berlaku.",
-          variant: "error"
+          description: "Terjadi kesalahan. Coba lagi.",
+          variant: "error",
         });
         setLoading(false);
         return;
       }
+
       router.push(res.url ?? props.callbackUrl);
     } catch {
       push({ title: "Login gagal", variant: "error" });
-    } finally {
       setLoading(false);
     }
   }
@@ -89,7 +100,7 @@ export function LoginClient(props: { callbackUrl: string }) {
           Masuk
         </h1>
         <p className="mt-2 text-sm text-slate-gray">
-          Login email & password + kode verifikasi.
+          Masukkan email dan password akun Anda.
         </p>
 
         <div className="mt-6 space-y-4">
@@ -112,44 +123,18 @@ export function LoginClient(props: { callbackUrl: string }) {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               autoComplete="current-password"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && email && password) onLogin();
+              }}
               className="mt-1 h-11 w-full rounded-xl border border-border-lavender px-4 text-sm outline-none focus:ring-2 focus:ring-expo-black/10"
               placeholder="••••••••••••"
-            />
-          </label>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={requestCode}
-              disabled={sending || !email || !password}
-              className="inline-flex h-10 items-center rounded-full border border-border-lavender bg-white px-5 text-sm font-semibold text-near-black transition disabled:opacity-50 hover:bg-cloud-gray active:scale-[0.98]"
-            >
-              {sending ? "Mengirim..." : "Kirim Kode Login"}
-            </button>
-            <Link
-              href={`/verify?email=${encodeURIComponent(email)}`}
-              className="inline-flex h-10 items-center rounded-full border border-border-lavender bg-white px-5 text-sm font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98]"
-            >
-              Verifikasi Email
-            </Link>
-          </div>
-
-          <label className="block">
-            <div className="text-xs font-semibold text-slate-gray">Kode</div>
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              inputMode="numeric"
-              pattern="[0-9]*"
-              className="mt-1 h-11 w-full rounded-xl border border-border-lavender px-4 text-sm outline-none focus:ring-2 focus:ring-expo-black/10"
-              placeholder="6 digit"
             />
           </label>
 
           <button
             type="button"
             onClick={onLogin}
-            disabled={loading || !email || !password || !code}
+            disabled={loading || !email || !password}
             className="inline-flex h-11 w-full items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
           >
             {loading ? "Masuk..." : "Masuk"}
@@ -166,4 +151,3 @@ export function LoginClient(props: { callbackUrl: string }) {
     </main>
   );
 }
-
