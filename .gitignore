@@ -4,6 +4,7 @@ node_modules/
 out/
 .vercel/
 .npm-cache/
+tsconfig.tsbuildinfo
 
 # Env
 .env.local
@@ -20,6 +21,7 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.claude/
 
 # Python
 .venv/
@@ -28,3 +30,5 @@ __pycache__/
 
 # Data outputs
 data_output/
+data_Input/
+userdocs/midtrans-tnc-template-13-jan-2017.pdf
