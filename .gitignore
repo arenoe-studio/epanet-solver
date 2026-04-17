@@ -9,6 +9,9 @@ tsconfig.tsbuildinfo
 # Env
 .env.local
 .env.*.local
+.env.vercel
+.env.vercel.*
+!.env.vercel.example
 
 # Logs
 npm-debug.log*
