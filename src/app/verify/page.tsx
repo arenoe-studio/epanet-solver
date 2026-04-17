@@ -1,7 +1,8 @@
 import { VerifyClient } from "./VerifyClient";
 
-export default function VerifyEmailPage(props: { searchParams?: { email?: string } }) {
+export default function VerifyEmailPage(props: { searchParams?: { email?: string; sent?: string } }) {
   const initialEmail = props.searchParams?.email ?? "";
-  return <VerifyClient initialEmail={initialEmail} />;
+  const codeSent = props.searchParams?.sent === "1";
+  return <VerifyClient initialEmail={initialEmail} codeSent={codeSent} />;
 }
 

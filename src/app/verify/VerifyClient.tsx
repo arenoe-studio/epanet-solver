@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
 
-export function VerifyClient(props: { initialEmail: string }) {
+export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }) {
   const router = useRouter();
   const { push } = useToast();
 
@@ -14,6 +14,7 @@ export function VerifyClient(props: { initialEmail: string }) {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  const [codeSent, setCodeSent] = useState(props.codeSent ?? false);
 
   useEffect(() => setEmail(props.initialEmail), [props.initialEmail]);
 
@@ -69,6 +70,7 @@ export function VerifyClient(props: { initialEmail: string }) {
         description: "Cek inbox/spam email Anda.",
         variant: "success"
       });
+      setCodeSent(true);
     } catch {
       push({ title: "Gagal kirim ulang", variant: "error" });
     } finally {
@@ -111,6 +113,16 @@ export function VerifyClient(props: { initialEmail: string }) {
             />
           </label>
 
+          {!codeSent ? (
+            <button
+              type="button"
+              onClick={resend}
+              disabled={resending || !email}
+              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
+            >
+              {resending ? "Mengirim..." : "Kirim Kode"}
+            </button>
+          ) : (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -129,6 +141,7 @@ export function VerifyClient(props: { initialEmail: string }) {
               {resending ? "Mengirim..." : "Kirim Ulang"}
             </button>
           </div>
+          )}
 
           <div className="text-center text-xs text-slate-gray">
             Sudah verifikasi?{" "}

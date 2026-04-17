@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
 import {
@@ -17,6 +18,7 @@ type ResultsPanelProps = {
   onAnalyzeAnother: () => void;
   onFixPressure: () => void;
   isFixingPressure: boolean;
+  tokenBalance?: number | null;
 };
 
 function downloadBase64File(base64: string, filename: string) {
@@ -30,25 +32,143 @@ function downloadBase64File(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function NodeBadge({ code }: { code: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    "P-OK": { label: "✅ OK", cls: "bg-green-50 text-green-700 border-green-200" },
+    "P-LOW": { label: "⚠️ P-LOW", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    "P-HIGH": { label: "⚠️ P-HIGH", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+    "P-NEG": { label: "🔴 P-NEG", cls: "bg-red-50 text-red-700 border-red-200" }
+  };
+  const { label, cls } = map[code] ?? { label: code, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function PipeBadge({ code }: { code: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    "OK": { label: "✅ OK", cls: "bg-green-50 text-green-700 border-green-200" },
+    "V-LOW": { label: "⚠️ V-LOW", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    "V-HIGH": { label: "🔴 V-HIGH", cls: "bg-red-50 text-red-700 border-red-200" },
+    "HL-HIGH": { label: "🔴 HL-HIGH", cls: "bg-red-50 text-red-700 border-red-200" },
+    "HL-SMALL": { label: "🔴 Terlalu Kecil", cls: "bg-red-50 text-red-700 border-red-200" }
+  };
+  const { label, cls } = map[code] ?? { label: code, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+        active
+          ? "border-expo-black bg-expo-black text-white"
+          : "border-border-lavender bg-white text-slate-gray hover:bg-cloud-gray"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function ResultsPanel({
   result,
   onAnalyzeAnother,
   onFixPressure,
-  isFixingPressure
+  isFixingPressure,
+  tokenBalance
 }: ResultsPanelProps) {
+  const [nodeFilter, setNodeFilter] = useState<"all" | "issues" | "ok">("all");
+  const [pipeFilter, setPipeFilter] = useState<"all" | "changed" | "issues" | "ok">("all");
+  const [materialAccordionOpen, setMaterialAccordionOpen] = useState(false);
+
   const filesV1 = result.filesV1 ?? result.files;
   const filesFinal = result.filesFinal ?? null;
   const prvNeeded = result.prv?.needed ?? false;
   const prvRecs = result.prv?.recommendations ?? [];
   const fixCost = result.prv?.tokenCost ?? FIX_PRESSURE_TOKEN_COST;
 
+  const nodes = result.nodes ?? [];
+  const pipes = result.pipes ?? [];
+  const materials = result.materials ?? [];
+  const networkInfo = result.networkInfo;
+
+  const vStatus = useMemo(
+    () => (pipes.some((p) => p.code === "V-HIGH" || p.code === "HL-SMALL") ? "warn" : "ok"),
+    [pipes]
+  );
+  const hlStatus = useMemo(
+    () => (pipes.some((p) => p.code === "HL-HIGH" || p.code === "HL-SMALL") ? "warn" : "ok"),
+    [pipes]
+  );
+  const pStatus = useMemo(
+    () => (nodes.some((n) => n.code !== "P-OK") ? "warn" : "ok"),
+    [nodes]
+  );
+
+  const hasPHighNodes = nodes.some((n) => n.code === "P-HIGH");
+
+  const overallBadge = filesFinal
+    ? { text: "Analisis lengkap", color: "green" as const }
+    : prvNeeded
+      ? { text: "Analisis selesai — tekanan perlu ditangani", color: "yellow" as const }
+      : { text: "Analisis selesai", color: "green" as const };
+
+  const filteredNodes = useMemo(() => {
+    if (nodeFilter === "issues") return nodes.filter((n) => n.code !== "P-OK");
+    if (nodeFilter === "ok") return nodes.filter((n) => n.code === "P-OK");
+    return nodes;
+  }, [nodes, nodeFilter]);
+
+  const filteredPipes = useMemo(() => {
+    if (pipeFilter === "changed") return pipes.filter((p) => p.diameterBefore !== p.diameterAfter);
+    if (pipeFilter === "issues") return pipes.filter((p) => p.code !== "OK");
+    if (pipeFilter === "ok") return pipes.filter((p) => p.code === "OK");
+    return pipes;
+  }, [pipes, pipeFilter]);
+
+  const badgeClass =
+    overallBadge.color === "green"
+      ? "border-green-200 bg-green-50 text-green-700"
+      : "border-yellow-200 bg-yellow-50 text-yellow-700";
+
+  const dotClass =
+    overallBadge.color === "green" ? "bg-green-500" : "bg-yellow-500";
+
+  const prvFixedNodes = useMemo(() => {
+    if (!filesFinal || !prvNeeded) return [];
+    const coveredNodeIds = new Set(prvRecs.flatMap((r) => r.coveredNodes));
+    return nodes.filter((n) => coveredNodeIds.has(n.id));
+  }, [filesFinal, prvNeeded, prvRecs, nodes]);
+
   return (
-    <section className="mx-auto max-w-4xl space-y-6">
+    <section className="mx-auto max-w-5xl space-y-6">
+
+      {/* BLOK 1 — STATUS HEADER */}
       <div>
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-          <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-          Analisis selesai
+        <div
+          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badgeClass}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden />
+          {overallBadge.text}
         </div>
+
         <h2 className="mt-3 text-3xl font-bold tracking-[-0.035em] text-expo-black">
           Hasil Analisis
         </h2>
@@ -56,155 +176,619 @@ export function ResultsPanel({
           File:{" "}
           <span className="font-mono text-near-black">{result.fileName}</span>
         </p>
-      </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        {[
-          { label: "Simpul", value: result.summary.nodes },
-          { label: "Pipa", value: result.summary.pipes },
-          { label: "Masalah Ditemukan", value: result.summary.issuesFound },
-          { label: "Masalah Diperbaiki", value: result.summary.issuesFixed }
-        ].map(({ label, value }) => (
-          <div
-            key={label}
-            className="rounded-2xl border border-border-lavender bg-white p-4 shadow-whisper"
+        {/* V / HL / P indicator chips */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+              vStatus === "ok"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-yellow-200 bg-yellow-50 text-yellow-700"
+            }`}
           >
-            <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
-              {label}
-            </div>
-            <div className="mt-2 text-3xl font-bold tracking-[-0.04em] text-expo-black">
-              {value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper">
-        <div className="grid gap-4 sm:grid-cols-3 text-sm">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
-              Iterasi
-            </div>
-            <div className="mt-1 font-semibold text-expo-black">
-              {result.summary.iterations}
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
-              Durasi
-            </div>
-            <div className="mt-1 font-semibold text-expo-black">
-              {result.summary.duration}s
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
-              Masalah Tersisa
-            </div>
-            <div className="mt-1 font-semibold text-expo-black">
-              {result.summary.remainingIssues}
-            </div>
-          </div>
+            {vStatus === "ok" ? "✅" : "⚠️"} V Kecepatan {vStatus === "ok" ? "OK" : "Ada Masalah"}
+          </span>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+              hlStatus === "ok"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-yellow-200 bg-yellow-50 text-yellow-700"
+            }`}
+          >
+            {hlStatus === "ok" ? "✅" : "⚠️"} HL Headloss {hlStatus === "ok" ? "OK" : "Ada Masalah"}
+          </span>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+              pStatus === "ok"
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-orange-200 bg-orange-50 text-orange-700"
+            }`}
+          >
+            {pStatus === "ok" ? "✅" : "⚠️"} P Tekanan{" "}
+            {pStatus === "ok" ? "OK" : hasPHighNodes ? "Ada P-HIGH" : "Ada Masalah"}
+          </span>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper">
-        <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-          Unduh Hasil
+      {/* BLOK 2 — RINGKASAN JARINGAN & HASIL */}
+      <div className="space-y-3">
+        {/* Row 1 — Network info (neutral) */}
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+          {[
+            { label: "Simpul", value: result.summary.nodes, unit: "node" },
+            { label: "Pipa", value: result.summary.pipes, unit: "pipa" },
+            {
+              label: "Total Demand",
+              value: networkInfo ? networkInfo.totalDemandLps.toFixed(2) : "—",
+              unit: "LPS"
+            },
+            {
+              label: "Head Reservoir",
+              value: networkInfo ? networkInfo.headReservoirM.toFixed(1) : "—",
+              unit: "m"
+            }
+          ].map(({ label, value, unit }) => (
+            <div
+              key={label}
+              className="rounded-2xl border border-border-lavender bg-white p-4 shadow-whisper"
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
+                {label}
+              </div>
+              <div className="mt-2 text-2xl font-bold tracking-[-0.04em] text-expo-black">
+                {value}
+              </div>
+              <div className="mt-0.5 text-[11px] text-silver">{unit}</div>
+            </div>
+          ))}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2.5">
-          <Button
-            onClick={() => downloadBase64File(filesV1.inp, "optimized_network_v1.inp")}
-            variant="outline"
-          >
-            Unduh File .inp (v1)
-          </Button>
-          <Button
-            onClick={() => downloadBase64File(filesV1.md, "analysis_report_v1.md")}
-            variant="outline"
-          >
-            Unduh Laporan .md (v1)
-          </Button>
-          {filesFinal ? (
-            <>
-              <Button
-                onClick={() =>
-                  downloadBase64File(filesFinal.inp, "optimized_network_final.inp")
-                }
-                variant="outline"
+
+        {/* Row 2 — Analysis results */}
+        <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-5">
+          {[
+            { label: "Iterasi", value: result.summary.iterations, unit: "putaran" },
+            { label: "Durasi", value: `${result.summary.duration}s`, unit: "detik" },
+            { label: "Masalah Ditemukan", value: result.summary.issuesFound, unit: "awal" },
+            { label: "Berhasil Diperbaiki", value: result.summary.issuesFixed, unit: "selesai" },
+            {
+              label: "Masalah Tersisa",
+              value: result.summary.remainingIssues,
+              unit: "tersisa",
+              warn: result.summary.remainingIssues > 0
+            }
+          ].map(({ label, value, unit, warn }) => (
+            <div
+              key={label}
+              className={`rounded-2xl border p-4 shadow-whisper ${
+                warn
+                  ? "border-orange-200 bg-orange-50"
+                  : "border-border-lavender bg-white"
+              }`}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-gray">
+                {label}
+              </div>
+              <div
+                className={`mt-2 text-2xl font-bold tracking-[-0.04em] ${
+                  warn ? "text-orange-700" : "text-expo-black"
+                }`}
               >
-                Unduh File .inp (final)
-              </Button>
-              <Button
-                onClick={() =>
-                  downloadBase64File(filesFinal.md, "analysis_report_final.md")
-                }
-                variant="outline"
-              >
-                Unduh Laporan .md (final)
-              </Button>
-            </>
-          ) : null}
+                {value}
+              </div>
+              <div className="mt-0.5 text-[11px] text-silver">{unit}</div>
+            </div>
+          ))}
         </div>
-        <div className="mt-3 text-xs text-silver">
-          Token terpakai (analisis): {ANALYSIS_TOKEN_COST}
-          {filesFinal ? ` • Fix Pressure: ${fixCost}` : ""}
-        </div>
+
+        {result.summary.remainingIssues > 0 && (
+          <p className="text-xs leading-relaxed text-slate-gray">
+            <em>
+              Masalah tersisa adalah node dengan tekanan tinggi (P-HIGH). Ini bukan kegagalan
+              optimasi — tekanan tinggi disebabkan perbedaan elevasi dan tidak bisa diselesaikan
+              dengan mengubah diameter. Lihat rekomendasi PRV di bawah.
+            </em>
+          </p>
+        )}
       </div>
 
-      {prvNeeded && !filesFinal ? (
-        <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper space-y-4">
-          <div>
+      {/* BLOK 3 — TABEL NODE */}
+      {nodes.length > 0 && (
+        <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
+          <div className="border-b border-border-lavender px-5 py-4">
             <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-              Rekomendasi PRV (Pressure Reducing Valve)
+              Hasil Node
             </div>
-            <p className="mt-1 text-xs text-slate-gray">
-              Tekanan tinggi tidak diselesaikan dengan diameter. Gunakan Fix Pressure untuk
-              menyisipkan PRV otomatis.
+            <p className="mt-0.5 text-xs text-slate-gray">
+              Evaluasi tekanan per simpul berdasarkan Permen PU No. 18/PRT/M/2007 (batas: 10–80 m)
             </p>
+            {hasPHighNodes && (
+              <p className="mt-2 text-xs italic text-slate-gray">
+                Perubahan tekanan antar kondisi minimal karena sistem mengiterasi diameter, bukan
+                mengatur tekanan langsung. Node dengan P-HIGH ditangani melalui PRV — lihat Panel
+                PRV di bawah.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <FilterPill active={nodeFilter === "all"} onClick={() => setNodeFilter("all")}>
+                Semua ({nodes.length})
+              </FilterPill>
+              <FilterPill
+                active={nodeFilter === "issues"}
+                onClick={() => setNodeFilter("issues")}
+              >
+                Bermasalah ({nodes.filter((n) => n.code !== "P-OK").length})
+              </FilterPill>
+              <FilterPill active={nodeFilter === "ok"} onClick={() => setNodeFilter("ok")}>
+                OK ({nodes.filter((n) => n.code === "P-OK").length})
+              </FilterPill>
+            </div>
           </div>
-
-          <div className="overflow-hidden rounded-xl border border-border-lavender">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Pipe</TableHead>
-                  <TableHead>Setting (m)</TableHead>
-                  <TableHead>Covered Nodes</TableHead>
+                  <TableHead>Node</TableHead>
+                  <TableHead>Elevasi</TableHead>
+                  <TableHead>Tekanan Awal</TableHead>
+                  <TableHead>Tekanan Akhir</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {prvRecs.length === 0 ? (
+                {filteredNodes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={3}>Tidak ada data.</TableCell>
+                    <TableCell colSpan={5} className="text-center text-slate-gray">
+                      Tidak ada data.
+                    </TableCell>
                   </TableRow>
                 ) : (
-                  prvRecs.map((r) => (
-                    <TableRow key={r.pipeId}>
-                      <TableCell className="font-medium text-expo-black">
-                        {r.pipeId}
+                  filteredNodes.map((n) => (
+                    <TableRow key={n.id}>
+                      <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
+                      <TableCell>{n.elevation} m</TableCell>
+                      <TableCell>{n.pressureBefore.toFixed(2)} m</TableCell>
+                      <TableCell>{n.pressureAfter.toFixed(2)} m</TableCell>
+                      <TableCell>
+                        <NodeBadge code={n.code} />
                       </TableCell>
-                      <TableCell>{Math.round(r.settingHeadM)}</TableCell>
-                      <TableCell>{r.coveredNodes.join(", ")}</TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
           </div>
+        </div>
+      )}
 
-          <div className="flex flex-wrap gap-2.5">
-            <Button onClick={onFixPressure} disabled={isFixingPressure}>
-              {isFixingPressure
-                ? "Memproses Fix Pressure…"
-                : `FIX PRESSURE (${fixCost} token)`}
-            </Button>
+      {/* BLOK 4 — TABEL PIPA */}
+      {pipes.length > 0 && (
+        <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
+          <div className="border-b border-border-lavender px-5 py-4">
+            <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
+              Hasil Pipa
+            </div>
+            <p className="mt-0.5 text-xs text-slate-gray">
+              Evaluasi kecepatan dan headloss per pipa. Diameter diiterasi otomatis menggunakan
+              ukuran standar SNI.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <FilterPill active={pipeFilter === "all"} onClick={() => setPipeFilter("all")}>
+                Semua ({pipes.length})
+              </FilterPill>
+              <FilterPill
+                active={pipeFilter === "changed"}
+                onClick={() => setPipeFilter("changed")}
+              >
+                Diameter Berubah (
+                {pipes.filter((p) => p.diameterBefore !== p.diameterAfter).length})
+              </FilterPill>
+              <FilterPill
+                active={pipeFilter === "issues"}
+                onClick={() => setPipeFilter("issues")}
+              >
+                Bermasalah ({pipes.filter((p) => p.code !== "OK").length})
+              </FilterPill>
+              <FilterPill active={pipeFilter === "ok"} onClick={() => setPipeFilter("ok")}>
+                OK ({pipes.filter((p) => p.code === "OK").length})
+              </FilterPill>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pipa</TableHead>
+                  <TableHead>Panjang</TableHead>
+                  <TableHead>D Awal</TableHead>
+                  <TableHead>D Akhir</TableHead>
+                  <TableHead>V Awal</TableHead>
+                  <TableHead>V Akhir</TableHead>
+                  <TableHead>HL Awal</TableHead>
+                  <TableHead>HL Akhir</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredPipes.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center text-slate-gray">
+                      Tidak ada data.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredPipes.map((p) => {
+                    const dChanged = p.diameterBefore !== p.diameterAfter;
+                    return (
+                      <TableRow
+                        key={p.id}
+                        className={dChanged ? "bg-blue-50/40" : undefined}
+                      >
+                        <TableCell className="font-medium text-expo-black">{p.id}</TableCell>
+                        <TableCell>{p.length} m</TableCell>
+                        <TableCell>{p.diameterBefore.toFixed(1)} mm</TableCell>
+                        <TableCell
+                          className={dChanged ? "font-bold text-expo-black" : undefined}
+                        >
+                          {p.diameterAfter.toFixed(1)} mm
+                        </TableCell>
+                        <TableCell>{p.velocityBefore.toFixed(3)} m/s</TableCell>
+                        <TableCell>{p.velocityAfter.toFixed(3)} m/s</TableCell>
+                        <TableCell>{p.headlossBefore.toFixed(2)} m/km</TableCell>
+                        <TableCell>{p.headlossAfter.toFixed(2)} m/km</TableCell>
+                        <TableCell>
+                          <PipeBadge code={p.code} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="px-5 py-3 text-[11px] text-silver">
+            Diameter mengacu pada ukuran standar SNI: 40, 50, 63, 75, 90, 110, 125, 150, 200,
+            250, 315, 400, 500 mm.
+          </p>
+        </div>
+      )}
+
+      {/* BLOK 5 — REKOMENDASI MATERIAL */}
+      {materials.length > 0 && (
+        <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
+          <div className="border-b border-border-lavender px-5 py-4">
+            <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
+              Rekomendasi Material
+            </div>
+            <p className="mt-0.5 text-xs text-slate-gray">
+              Material direkomendasikan berdasarkan tekanan kerja aktual dan diameter hasil
+              optimasi, mengacu pada SNI dan Permen PU No. 18/2007.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pipa</TableHead>
+                  <TableHead>D Rekomendasi</TableHead>
+                  <TableHead>Material</TableHead>
+                  <TableHead>Nilai C</TableHead>
+                  <TableHead>Tekanan Kerja</TableHead>
+                  <TableHead>Catatan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {materials.map((m) => (
+                  <TableRow key={m.pipeId}>
+                    <TableCell className="font-medium text-expo-black">{m.pipeId}</TableCell>
+                    <TableCell>{m.diameterMm.toFixed(1)} mm</TableCell>
+                    <TableCell>{m.material}</TableCell>
+                    <TableCell>{m.C}</TableCell>
+                    <TableCell>{m.pressureWorkingM.toFixed(2)} m</TableCell>
+                    <TableCell>
+                      {m.notes.length > 0 ? (
+                        <span className="text-[11px] leading-snug text-orange-700">
+                          {m.notes[0]}
+                        </span>
+                      ) : (
+                        <span className="text-silver">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Accordion */}
+          <div className="border-t border-border-lavender">
+            <button
+              type="button"
+              onClick={() => setMaterialAccordionOpen((v) => !v)}
+              className="flex w-full items-center justify-between px-5 py-3 text-xs font-semibold text-near-black hover:bg-cloud-gray transition"
+            >
+              <span>Dasar Pemilihan Material</span>
+              <span className="text-slate-gray">{materialAccordionOpen ? "▲" : "▼"}</span>
+            </button>
+            {materialAccordionOpen && (
+              <div className="border-t border-border-lavender bg-cloud-gray px-5 py-4 text-[11px] leading-relaxed text-slate-gray">
+                <pre className="whitespace-pre-wrap font-mono text-[11px]">
+                  {`Matriks keputusan yang digunakan sistem:
+
+Tekanan ≤ 100m, Diameter ≤ 110mm  → PVC AW PN-10  (C=140)
+Tekanan ≤ 100m, Diameter > 110mm  → HDPE PE100 PN-10  (C=140)
+Tekanan 100–160m                   → HDPE PE100 PN-16  (C=140)
+Tekanan > 160m                     → GIP Heavy / Steel  (C=120)
+
+Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) ·
+           SNI 07-0242.1-2000 (GIP) · EPANET 2.2 Manual Table 3.2`}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
-      ) : null}
+      )}
 
-      <div>
-        <Button onClick={onAnalyzeAnother}>Analisis File Baru</Button>
+      {/* BLOK 6 — PANEL PRV (conditional) */}
+      {prvNeeded && (
+        <div className="rounded-2xl border border-orange-200 bg-white shadow-whisper">
+          {/* Sub-blok D — After Fix Pressure */}
+          {filesFinal ? (
+            <div className="space-y-4 p-5">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
+                Fix Pressure selesai
+              </div>
+              <p className="text-sm text-slate-gray">
+                {prvRecs.length} PRV berhasil disisipkan.{" "}
+                {prvFixedNodes.filter((n) => n.code === "P-OK").length} node tekanan sudah OK.
+              </p>
+              {prvFixedNodes.length > 0 && (
+                <div className="overflow-hidden rounded-xl border border-border-lavender">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Node</TableHead>
+                        <TableHead>Tekanan Akhir</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {prvFixedNodes.map((n) => (
+                        <TableRow key={n.id}>
+                          <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
+                          <TableCell>{n.pressureAfter.toFixed(2)} m</TableCell>
+                          <TableCell>
+                            <NodeBadge code={n.code} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+              {materials.some((m) => m.notes.some((note) => note.includes("Evaluasi ulang"))) && (
+                <p className="text-xs italic text-orange-700">
+                  ⚠️ Beberapa pipa di zona PRV perlu evaluasi ulang material setelah tekanan berubah.
+                </p>
+              )}
+            </div>
+          ) : (
+            /* Sub-blok A + B + C — Before Fix Pressure */
+            <div className="space-y-5 p-5">
+              {/* Sub-blok A */}
+              <div className="rounded-xl border border-orange-100 bg-orange-50 p-4">
+                <div className="text-sm font-semibold text-orange-900">
+                  Mengapa tekanan tinggi tidak cukup diatasi dengan diameter?
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-orange-800">
+                  Tekanan tinggi terjadi karena perbedaan elevasi yang besar antara reservoir dan
+                  node. Ini adalah energi potensial yang tersimpan dalam air — bukan hambatan aliran
+                  yang bisa dikurangi dengan mengubah diameter.
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-orange-800">
+                  Memperbesar diameter justru meningkatkan tekanan di hilir karena headloss
+                  berkurang. Memperkecil diameter akan menurunkan tekanan, tetapi juga melanggar
+                  batas kecepatan dan headloss.
+                </p>
+                <p className="mt-1.5 text-xs leading-relaxed text-orange-800">
+                  Solusi yang tepat adalah{" "}
+                  <strong>Pressure Reducing Valve (PRV)</strong> — yang secara mekanis mereduksi
+                  tekanan tanpa mengganggu debit aliran.
+                </p>
+              </div>
+
+              {/* Sub-blok B */}
+              {prvRecs.length > 0 && (
+                <div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.05em] text-slate-gray">
+                    Rekomendasi Penempatan PRV
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-border-lavender">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>No</TableHead>
+                          <TableHead>Pipa</TableHead>
+                          <TableHead>Setting PRV</TableHead>
+                          <TableHead>Node Tercakup</TableHead>
+                          <TableHead>Estimasi Tekanan Setelah</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {prvRecs.map((r, i) => (
+                          <TableRow key={r.pipeId}>
+                            <TableCell className="text-slate-gray">{i + 1}</TableCell>
+                            <TableCell className="font-medium text-expo-black">
+                              {r.pipeId}
+                            </TableCell>
+                            <TableCell>{Math.round(r.settingHeadM)} m</TableCell>
+                            <TableCell>{r.coveredNodes.join(", ")}</TableCell>
+                            <TableCell>
+                              <span className="text-xs leading-relaxed">
+                                {Object.entries(r.estimatedPressuresM)
+                                  .map(([nid, p]) => `${nid}=${Math.round(p)}m`)
+                                  .join("  ")}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <p className="mt-2 text-xs italic text-slate-gray">
+                    Estimasi berdasarkan kalkulasi statis. Nilai aktual setelah simulasi mungkin
+                    sedikit berbeda. Gunakan Fix Pressure untuk hasil presisi.
+                  </p>
+                </div>
+              )}
+
+              {/* Sub-blok C */}
+              <div className="space-y-3">
+                <div>
+                  <Button onClick={onFixPressure} disabled={isFixingPressure}>
+                    {isFixingPressure
+                      ? "Memproses Fix Pressure…"
+                      : `Fix Pressure Otomatis — ${fixCost} Token`}
+                  </Button>
+                  <p className="mt-1.5 text-xs text-slate-gray">
+                    PRV disisipkan ke file .inp dan simulasi dijalankan ulang. Hasil final siap
+                    diunduh.
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-gray">
+                    Atau{" "}
+                    <span className="font-medium text-near-black">
+                      pasang PRV manual di EPANET
+                    </span>{" "}
+                    — panduan langkah demi langkah tersedia di file laporan .md.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BLOK 7 — DOWNLOAD */}
+      <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper space-y-4">
+        <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
+          Unduh Hasil
+        </div>
+
+        {filesFinal ? (
+          /* Kondisi 2 — Setelah Fix Pressure */
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-silver">
+                Versi dengan optimasi diameter saja, tanpa PRV
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() =>
+                    downloadBase64File(filesV1.inp, "optimized_network_v1.inp")
+                  }
+                  variant="outline"
+                  size="sm"
+                >
+                  Unduh File .inp (v1)
+                </Button>
+                <Button
+                  onClick={() =>
+                    downloadBase64File(filesV1.md, "analysis_report_v1.md")
+                  }
+                  variant="outline"
+                  size="sm"
+                >
+                  Unduh Laporan .md (v1)
+                </Button>
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-silver">
+                Versi lengkap: diameter dioptimasi + PRV sudah disisipkan
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() =>
+                    downloadBase64File(filesFinal.inp, "optimized_network_final.inp")
+                  }
+                  variant="outline"
+                  size="sm"
+                >
+                  Unduh File .inp (final)
+                </Button>
+                <Button
+                  onClick={() =>
+                    downloadBase64File(filesFinal.md, "analysis_report_final.md")
+                  }
+                  variant="outline"
+                  size="sm"
+                >
+                  Unduh Laporan .md (final)
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : prvNeeded ? (
+          /* Kondisi 1 — Setelah Modul 2, sebelum Fix Pressure */
+          <div>
+            <p className="mb-3 text-xs text-slate-gray">
+              File versi v1 sudah mencakup optimasi diameter. PRV belum disisipkan — tersedia di
+              versi final setelah Fix Pressure dijalankan.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() =>
+                  downloadBase64File(filesV1.inp, "optimized_network_v1.inp")
+                }
+                variant="outline"
+                size="sm"
+              >
+                Unduh File .inp (v1)
+              </Button>
+              <Button
+                onClick={() => downloadBase64File(filesV1.md, "analysis_report_v1.md")}
+                variant="outline"
+                size="sm"
+              >
+                Unduh Laporan .md (v1)
+              </Button>
+            </div>
+          </div>
+        ) : (
+          /* Kondisi 3 — Semua kriteria terpenuhi */
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => downloadBase64File(filesV1.inp, "optimized_network.inp")}
+              variant="outline"
+              size="sm"
+            >
+              Unduh File .inp
+            </Button>
+            <Button
+              onClick={() => downloadBase64File(filesV1.md, "analysis_report.md")}
+              variant="outline"
+              size="sm"
+            >
+              Unduh Laporan .md
+            </Button>
+          </div>
+        )}
+
+        <div className="border-t border-border-lavender pt-3 text-xs text-silver">
+          Token terpakai: Analisis = {ANALYSIS_TOKEN_COST} token
+          {filesFinal ? ` · Fix Pressure = ${fixCost} token` : ""}
+          {tokenBalance !== null && tokenBalance !== undefined
+            ? ` · Sisa saldo: ${tokenBalance} token`
+            : ""}
+        </div>
+
+        <div className="border-t border-border-lavender pt-3">
+          <Button onClick={onAnalyzeAnother} variant="outline" size="sm">
+            Analisis File Baru
+          </Button>
+        </div>
       </div>
     </section>
   );

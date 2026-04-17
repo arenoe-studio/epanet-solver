@@ -52,7 +52,7 @@ export default function RegisterPage() {
         description: "Kami mengirim kode verifikasi ke email Anda.",
         variant: "success"
       });
-      router.push(`/verify?email=${encodeURIComponent(email)}`);
+      router.push(`/verify?email=${encodeURIComponent(email)}&sent=1`);
     } catch {
       push({ title: "Gagal daftar", variant: "error" });
     } finally {

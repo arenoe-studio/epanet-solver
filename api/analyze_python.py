@@ -134,6 +134,7 @@ class handler(BaseHTTPRequestHandler):
             prv_fix_log = None
             prv_tune_log = None
             final_eval = after_eval
+            final_sim_results = sim_after
 
             if action == "fix_pressure" and prv.get("needed"):
                 prv_fix_log = apply_prvs(wn_opt, prv.get("recommendations") or [])
@@ -180,6 +181,7 @@ class handler(BaseHTTPRequestHandler):
 
                 sim_final = run_simulation(wn_opt)
                 final_eval = evaluate_network(wn_opt, sim_final)
+                final_sim_results = sim_final
                 materials_final = material_recommendations_for_network(wn_opt, sim_final)
 
                 out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
@@ -201,6 +203,97 @@ class handler(BaseHTTPRequestHandler):
                     prv_fix_log=prv_fix_log,
                     prv_tune_log=prv_tune_log,
                 )
+
+            # --- Build supplementary per-element data ---
+
+            nodes_data = []
+            for nid in wn_opt.junction_name_list:
+                junction = wn_opt.get_junction(nid)
+                elev = float(getattr(junction, "elevation", 0.0))
+                p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
+                p_after = float(final_eval["node_status"].get(nid, {}).get("pressure", 0.0))
+                code = final_eval["node_status"].get(nid, {}).get("code", "P-OK")
+                nodes_data.append({
+                    "id": nid,
+                    "elevation": round(elev, 2),
+                    "pressureBefore": round(p_before, 2),
+                    "pressureAfter": round(p_after, 2),
+                    "code": code,
+                })
+
+            pipes_data = []
+            for pid in wn_opt.pipe_name_list:
+                pipe = wn_opt.get_link(pid)
+                dc = (diameter_changes or {}).get(pid, {})
+                d_before_m = float(dc.get("before") or pipe.diameter)
+                d_after_m = float(dc.get("after") or pipe.diameter)
+                v_before = float(baseline_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+                v_after = float(final_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+                hl_before = float(baseline_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+                hl_after = float(final_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+                composite = final_eval["pipe_status"].get(pid, {}).get("composite", "OK")
+                pipes_data.append({
+                    "id": pid,
+                    "length": round(float(pipe.length), 1),
+                    "diameterBefore": round(d_before_m * 1000, 1),
+                    "diameterAfter": round(d_after_m * 1000, 1),
+                    "velocityBefore": round(v_before, 3),
+                    "velocityAfter": round(v_after, 3),
+                    "headlossBefore": round(hl_before, 2),
+                    "headlossAfter": round(hl_after, 2),
+                    "code": composite,
+                })
+
+            materials_current = material_recommendations_for_network(wn_opt, final_sim_results)
+            p_high_nodes = {
+                nid for nid, ns in final_eval["node_status"].items()
+                if ns.get("code") == "P-HIGH"
+            }
+            materials_data = []
+            for pid in wn_opt.pipe_name_list:
+                m = materials_current.get(pid)
+                if not m:
+                    continue
+                pipe = wn_opt.get_link(pid)
+                in_phigh_zone = (
+                    pipe.start_node_name in p_high_nodes
+                    or pipe.end_node_name in p_high_nodes
+                )
+                notes = list(m.get("notes", []))
+                if in_phigh_zone:
+                    notes = ["Evaluasi ulang material setelah PRV dipasang"] + notes
+                materials_data.append({
+                    "pipeId": pid,
+                    "diameterMm": round(float(m.get("diameterMm", 0)), 1),
+                    "material": m.get("material", ""),
+                    "C": float(m.get("C", 130)),
+                    "pressureWorkingM": round(float(m.get("pressureWorkingM", 0)), 2),
+                    "notes": notes,
+                })
+
+            total_demand_m3s = 0.0
+            try:
+                for _, j in wn.junctions():
+                    try:
+                        total_demand_m3s += float(j.base_demand)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            head_reservoir_m = 0.0
+            try:
+                for _, res in wn.reservoirs():
+                    try:
+                        head_reservoir_m = float(res.head_timeseries.base_value)
+                    except Exception:
+                        try:
+                            head_reservoir_m = float(res.head)
+                        except Exception:
+                            pass
+                    break
+            except Exception:
+                pass
 
             response = {
                 "success": True,
@@ -228,6 +321,13 @@ class handler(BaseHTTPRequestHandler):
                     if action == "fix_pressure" and out_inp_final and out_md_final
                     else {"inp": _b64_file(out_inp_v1), "md": _b64_file(out_md_v1)}
                 ),
+                "nodes": nodes_data,
+                "pipes": pipes_data,
+                "materials": materials_data,
+                "networkInfo": {
+                    "totalDemandLps": round(total_demand_m3s * 1000, 2),
+                    "headReservoirM": round(head_reservoir_m, 1),
+                },
             }
 
             self._respond(200, response)

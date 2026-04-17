@@ -13,6 +13,40 @@ export type User = {
   imageUrl: string | null;
 };
 
+export type NodeResult = {
+  id: string;
+  elevation: number;
+  pressureBefore: number;
+  pressureAfter: number;
+  code: "P-OK" | "P-LOW" | "P-HIGH" | "P-NEG";
+};
+
+export type PipeResult = {
+  id: string;
+  length: number;
+  diameterBefore: number;
+  diameterAfter: number;
+  velocityBefore: number;
+  velocityAfter: number;
+  headlossBefore: number;
+  headlossAfter: number;
+  code: "OK" | "V-LOW" | "V-HIGH" | "HL-HIGH" | "HL-SMALL";
+};
+
+export type MaterialResult = {
+  pipeId: string;
+  diameterMm: number;
+  material: string;
+  C: number;
+  pressureWorkingM: number;
+  notes: string[];
+};
+
+export type NetworkInfo = {
+  totalDemandLps: number;
+  headReservoirM: number;
+};
+
 export type AnalysisResult = {
   analysisId: number;
   fileName: string;
@@ -51,4 +85,8 @@ export type AnalysisResult = {
     inp: string;
     md: string;
   } | null;
+  nodes?: NodeResult[];
+  pipes?: PipeResult[];
+  materials?: MaterialResult[];
+  networkInfo?: NetworkInfo;
 };

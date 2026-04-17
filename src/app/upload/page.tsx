@@ -115,7 +115,11 @@ export default function UploadPage() {
         prv: json.prv,
         files: json.files,
         filesV1: json.filesV1,
-        filesFinal: json.filesFinal
+        filesFinal: json.filesFinal,
+        nodes: json.nodes,
+        pipes: json.pipes,
+        materials: json.materials,
+        networkInfo: json.networkInfo
       };
 
       setResult(nextResult);
@@ -185,7 +189,11 @@ export default function UploadPage() {
         prv: json.prv,
         files: json.files,
         filesV1: json.filesV1,
-        filesFinal: json.filesFinal
+        filesFinal: json.filesFinal,
+        nodes: json.nodes,
+        pipes: json.pipes,
+        materials: json.materials,
+        networkInfo: json.networkInfo
       };
 
       setResult(updated);
@@ -294,6 +302,7 @@ export default function UploadPage() {
             }}
             onFixPressure={runFixPressure}
             isFixingPressure={isFixingPressure}
+            tokenBalance={tokenBalance}
           />
         ) : null
       ) : null}

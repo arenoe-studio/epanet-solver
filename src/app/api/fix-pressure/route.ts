@@ -107,43 +107,45 @@ export async function POST(req: Request) {
     pythonStatus = 500;
   }
 
-  const successSchema = z.object({
-    success: z.literal(true),
-    summary: z.object({
-      iterations: z.number(),
-      issuesFound: z.number(),
-      issuesFixed: z.number(),
-      remainingIssues: z.number().optional(),
-      duration: z.number().optional(),
-      nodes: z.number(),
-      pipes: z.number(),
-      fileName: z.string().optional()
-    }),
-    prv: z
-      .object({
-        needed: z.boolean(),
-        tokenCost: z.number().optional(),
-        recommendations: z.array(z.record(z.string(), z.any())).optional()
-      })
-      .optional(),
-    filesV1: z
-      .object({
+  const successSchema = z
+    .object({
+      success: z.literal(true),
+      summary: z.object({
+        iterations: z.number(),
+        issuesFound: z.number(),
+        issuesFixed: z.number(),
+        remainingIssues: z.number().optional(),
+        duration: z.number().optional(),
+        nodes: z.number(),
+        pipes: z.number(),
+        fileName: z.string().optional()
+      }),
+      prv: z
+        .object({
+          needed: z.boolean(),
+          tokenCost: z.number().optional(),
+          recommendations: z.array(z.record(z.string(), z.any())).optional()
+        })
+        .optional(),
+      filesV1: z
+        .object({
+          inp: z.string(),
+          md: z.string()
+        })
+        .optional(),
+      filesFinal: z
+        .object({
+          inp: z.string(),
+          md: z.string()
+        })
+        .nullable()
+        .optional(),
+      files: z.object({
         inp: z.string(),
         md: z.string()
       })
-      .optional(),
-    filesFinal: z
-      .object({
-        inp: z.string(),
-        md: z.string()
-      })
-      .nullable()
-      .optional(),
-    files: z.object({
-      inp: z.string(),
-      md: z.string()
     })
-  });
+    .passthrough();
 
   const failSchema = z.object({
     success: z.literal(false),
