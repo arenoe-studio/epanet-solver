@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import type { InpPreviewCounts } from "@/hooks/useFilePreview";
+import { ANALYSIS_TOKEN_COST } from "@/lib/token-constants";
 import { openBuyTokenModal } from "@/lib/ui-events";
 
 type FileSelectedCardProps = {
@@ -10,6 +11,7 @@ type FileSelectedCardProps = {
   previewLoading: boolean;
   previewError: string | null;
   tokenBalance: number | null;
+  isAnalyzing: boolean;
   onChangeFile: () => void;
   onRunAnalysis: () => void;
 };
@@ -32,10 +34,11 @@ export function FileSelectedCard({
   previewLoading,
   previewError,
   tokenBalance,
+  isAnalyzing,
   onChangeFile,
   onRunAnalysis
 }: FileSelectedCardProps) {
-  const canRun = tokenBalance === null ? true : tokenBalance >= 6;
+  const canRun = tokenBalance === null ? true : tokenBalance >= ANALYSIS_TOKEN_COST;
 
   return (
     <div className="max-w-2xl space-y-4">
@@ -89,8 +92,8 @@ export function FileSelectedCard({
 
       <div className="flex flex-wrap items-center gap-2.5">
         {canRun ? (
-          <Button onClick={onRunAnalysis} size="lg">
-            Jalankan Analisis
+          <Button onClick={onRunAnalysis} size="lg" disabled={isAnalyzing}>
+            {isAnalyzing ? "Memproses..." : "Jalankan Analisis"}
           </Button>
         ) : (
           <Button onClick={() => openBuyTokenModal()} size="lg">
@@ -102,7 +105,9 @@ export function FileSelectedCard({
         </Button>
         <span className="ml-auto text-sm text-slate-gray">
           Biaya:{" "}
-          <span className="font-semibold text-expo-black">6 token</span>
+          <span className="font-semibold text-expo-black">
+            {ANALYSIS_TOKEN_COST} token
+          </span>
         </span>
       </div>
     </div>

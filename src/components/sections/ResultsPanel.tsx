@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { ANALYSIS_TOKEN_COST } from "@/lib/token-constants";
 import type { AnalysisResult } from "@/types";
 
 type ResultsPanelProps = {
@@ -108,7 +109,9 @@ export function ResultsPanel({ result, onAnalyzeAnother }: ResultsPanelProps) {
             Unduh Laporan .md
           </Button>
         </div>
-        <div className="mt-3 text-xs text-silver">Token terpakai: 6</div>
+        <div className="mt-3 text-xs text-silver">
+          Token terpakai: {ANALYSIS_TOKEN_COST}
+        </div>
       </div>
 
       <div>

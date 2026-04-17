@@ -9,10 +9,10 @@ import { getDb } from "@/lib/db";
 import { analyses, tokenBalances } from "@/lib/db/schema";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
+import { ANALYSIS_TOKEN_COST } from "@/lib/token-constants";
 
 export const dynamic = "force-dynamic";
 
-const TOKENS_PER_ANALYSIS = 6;
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 function getPythonUrl(requestUrl: string) {
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   if (!bypassTokens) {
     const existingBalance = await ensureInitialTokenBalanceRow(db, userId);
     const balance = existingBalance.balance ?? 0;
-    if (balance < TOKENS_PER_ANALYSIS) {
+    if (balance < ANALYSIS_TOKEN_COST) {
       return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
     }
   }
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       userId,
       fileName: file.name,
       status: "processing",
-      tokensUsed: bypassTokens ? 0 : TOKENS_PER_ANALYSIS
+      tokensUsed: bypassTokens ? 0 : ANALYSIS_TOKEN_COST
     })
     .returning({ id: analyses.id });
 
@@ -144,13 +144,13 @@ export async function POST(req: Request) {
           const updated = await tx
             .update(tokenBalances)
             .set({
-              balance: sql`${tokenBalances.balance} - ${TOKENS_PER_ANALYSIS}`,
-              totalUsed: sql`${tokenBalances.totalUsed} + ${TOKENS_PER_ANALYSIS}`
+              balance: sql`${tokenBalances.balance} - ${ANALYSIS_TOKEN_COST}`,
+              totalUsed: sql`${tokenBalances.totalUsed} + ${ANALYSIS_TOKEN_COST}`
             })
             .where(
               and(
                 eq(tokenBalances.userId, userId),
-                gte(tokenBalances.balance, TOKENS_PER_ANALYSIS)
+                gte(tokenBalances.balance, ANALYSIS_TOKEN_COST)
               )
             )
             .returning({ balance: tokenBalances.balance });

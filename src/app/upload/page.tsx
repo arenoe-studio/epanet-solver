@@ -11,6 +11,7 @@ import { UploadZone } from "@/components/sections/UploadZone";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useToast } from "@/components/providers/ToastProvider";
+import { ANALYSIS_TOKEN_COST, INITIAL_FREE_TOKENS } from "@/lib/token-constants";
 import { openBuyTokenModal } from "@/lib/ui-events";
 import type { AnalysisResult, AppState } from "@/types";
 
@@ -31,7 +32,7 @@ export default function UploadPage() {
   const { push } = useToast();
 
   const canRunAnalysis = useMemo(() => {
-    return tokenBalance === null ? true : tokenBalance >= 6;
+    return tokenBalance === null ? true : tokenBalance >= ANALYSIS_TOKEN_COST;
   }, [tokenBalance]);
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function UploadPage() {
       sessionStorage.setItem(key, "1");
       push({
         title: "Selamat datang!",
-        description: "Jika user baru, 6 token gratis otomatis ditambahkan.",
+        description: `Jika user baru, ${INITIAL_FREE_TOKENS} token gratis otomatis ditambahkan.`,
         variant: "success"
       });
     } catch {
@@ -62,6 +63,7 @@ export default function UploadPage() {
 
   async function runAnalysis() {
     if (!selectedFile) return;
+    if (isAnalyzing) return;
     if (!canRunAnalysis) {
       openBuyTokenModal();
       push({ title: "Saldo token tidak cukup", variant: "error" });
@@ -82,6 +84,7 @@ export default function UploadPage() {
       if (res.status === 402) {
         setIsAnalyzing(false);
         setState("file-selected");
+        void refreshBalance();
         openBuyTokenModal();
         push({ title: "Saldo token tidak cukup", variant: "error" });
         return;
@@ -117,6 +120,7 @@ export default function UploadPage() {
     } catch {
       setErrorMessage("Terjadi kesalahan sistem.");
       setIsAnalyzing(false);
+      void refreshBalance();
       setState("error");
       push({ title: "Analisis gagal", variant: "error" });
     }
@@ -182,6 +186,7 @@ export default function UploadPage() {
             previewLoading={previewLoading}
             previewError={previewError}
             tokenBalance={tokenBalance}
+            isAnalyzing={isAnalyzing}
             onChangeFile={() => {
               setSelectedFile(null);
               setState("upload");
@@ -260,4 +265,3 @@ export default function UploadPage() {
     </main>
   );
 }
-

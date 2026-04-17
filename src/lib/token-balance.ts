@@ -2,10 +2,9 @@ import { eq } from "drizzle-orm";
 
 import type { getDb } from "@/lib/db";
 import { tokenBalances } from "@/lib/db/schema";
+import { INITIAL_FREE_TOKENS } from "@/lib/token-constants";
 
 type Db = ReturnType<typeof getDb>;
-
-export const INITIAL_FREE_TOKENS = 6;
 
 export async function ensureInitialTokenBalanceRow(db: Db, userId: string) {
   const rows = await db
@@ -47,4 +46,3 @@ export async function ensureInitialTokenBalanceRow(db: Db, userId: string) {
 
   return { balance, totalBought, totalUsed };
 }
-
