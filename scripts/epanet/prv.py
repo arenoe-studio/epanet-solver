@@ -245,7 +245,7 @@ def apply_prvs(
             j_dn,
             valve_type="PRV",
             diameter=float(pipe.diameter),
-            setting=setting,
+            initial_setting=setting,
         )
         wn.add_pipe(
             p_dn,
@@ -301,11 +301,14 @@ def fine_tune_prvs(
         for vid in prv_valve_ids:
             try:
                 valve = wn.get_link(vid)
-                valve.setting = float(valve.setting) + delta
+                new_setting = float(getattr(valve, "setting", 0.0)) + delta
+                if hasattr(valve, "setting"):
+                    valve.setting = new_setting
+                if hasattr(valve, "initial_setting"):
+                    valve.initial_setting = new_setting
             except Exception:
                 continue
 
         tune_log.append({"iter": it, "deltaSettingM": delta, "minP": min_p, "maxP": max_p})
 
     return tune_log
-
