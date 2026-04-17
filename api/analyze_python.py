@@ -208,7 +208,7 @@ class handler(BaseHTTPRequestHandler):
 
             nodes_data = []
             for nid in wn_opt.junction_name_list:
-                junction = wn_opt.get_junction(nid)
+                junction = wn_opt.get_node(nid)
                 elev = float(getattr(junction, "elevation", 0.0))
                 p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
                 p_after = float(final_eval["node_status"].get(nid, {}).get("pressure", 0.0))
