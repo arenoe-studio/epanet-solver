@@ -20,10 +20,36 @@ export async function sendPaymentConfirmationEmail(opts: {
   if (!resend) return;
 
   await resend.emails.send({
-    // Use a verified sender in your Resend account for production.
     from: "EPANET Solver <onboarding@resend.dev>",
     to: opts.to,
     subject: "Pembelian token berhasil",
     text: `Pembelian token berhasil.\n\nOrder: ${opts.orderId}\nToken: ${opts.tokens}\nAmount: Rp ${opts.amount}\n`
   });
 }
+
+export async function sendAuthCodeEmail(opts: {
+  to: string;
+  code: string;
+  purpose: "verify_email" | "login" | "reset_password";
+}) {
+  const resend = getResend();
+  if (!resend) return;
+
+  const from =
+    process.env.AUTH_EMAIL_FROM ?? "EPANET Solver <onboarding@resend.dev>";
+
+  const subject =
+    opts.purpose === "verify_email"
+      ? "Kode verifikasi email"
+      : opts.purpose === "reset_password"
+        ? "Kode reset password"
+        : "Kode login";
+
+  await resend.emails.send({
+    from,
+    to: opts.to,
+    subject,
+    text: `Kode Anda: ${opts.code}\n\nKode berlaku beberapa menit. Jika Anda tidak merasa meminta kode ini, abaikan email ini.\n`
+  });
+}
+

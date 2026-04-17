@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 
 import { AnalysisHistoryModal } from "@/components/modals/AnalysisHistoryModal";
@@ -16,14 +16,27 @@ export function Navbar() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [txOpen, setTxOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
 
   const pathname = usePathname();
   const { data: session, status } = useSession();
   const isLoggedIn = status === "authenticated";
   const user = session?.user ?? null;
+  const isHomePage = pathname === "/";
 
   const { balance: tokenBalance } = useTokenBalance(isLoggedIn);
+
+  useEffect(() => {
+    if (!isHomePage) {
+      setScrolled(true);
+      return;
+    }
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isHomePage]);
 
   useEffect(() => {
     function onOpenBuy() {
@@ -67,18 +80,29 @@ export function Navbar() {
       .join("");
   }, [user?.name]);
 
-  const navItems = useMemo(
-    () => [
-      { href: "/", label: "Beranda" },
-      { href: "/upload", label: "Upload" },
-      { href: "/checkout", label: "Checkout" },
-      { href: "/contact", label: "Kontak" }
-    ],
-    []
-  );
+  const navItems = useMemo(() => {
+    if (isLoggedIn) {
+      return [
+        { href: "/upload", label: "Upload", external: false },
+        { href: "/checkout", label: "Checkout", external: false },
+        { href: "/contact", label: "Kontak", external: false },
+      ];
+    }
+    return [
+      { href: "/#how-it-works", label: "Cara Kerja", external: false },
+      { href: "/#pricing", label: "Pricing", external: false },
+      { href: "/docs", label: "Dokumentasi", external: true },
+    ];
+  }, [isLoggedIn]);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border-lavender bg-white/80 backdrop-blur-md">
+    <header
+      className={`sticky top-0 z-50 border-b transition-colors duration-200 ${
+        scrolled
+          ? "border-border-lavender bg-white/90 backdrop-blur-md"
+          : "border-transparent bg-transparent backdrop-blur-sm"
+      }`}
+    >
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <Link
           href="/"
@@ -90,13 +114,7 @@ export function Navbar() {
             }
           }}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-hidden
-          >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
             <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
             <circle cx="8" cy="8" r="3" fill="currentColor" opacity="0.25" />
             <path
@@ -112,11 +130,14 @@ export function Navbar() {
         <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => {
             const isActive =
-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+              !item.external &&
+              (item.href === "/" ? pathname === "/" : pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                target={item.external ? "_blank" : undefined}
+                rel={item.external ? "noopener noreferrer" : undefined}
                 className={`rounded-full px-3 py-1.5 text-sm transition ${
                   isActive
                     ? "bg-cloud-gray font-semibold text-expo-black"
@@ -130,13 +151,12 @@ export function Navbar() {
         </nav>
 
         {!isLoggedIn ? (
-          <button
-            onClick={() => signIn("google", { callbackUrl: "/upload" })}
-            type="button"
+          <Link
+            href="/login?callbackUrl=%2Fupload"
             className="inline-flex h-9 items-center gap-2 rounded-full bg-expo-black px-5 text-sm font-semibold text-white transition-opacity hover:opacity-80 active:scale-[0.98]"
           >
-            Masuk dengan Google
-          </button>
+            Coba Gratis
+          </Link>
         ) : (
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-full border border-border-lavender bg-white px-3 py-1.5 text-xs">

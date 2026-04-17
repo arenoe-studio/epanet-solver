@@ -3,8 +3,10 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   NEXTAUTH_SECRET: z.string().min(1),
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
+  RESEND_API_KEY: z.string().min(1),
+  AUTH_EMAIL_FROM: z.string().min(1).optional(),
+  AUTH_REQUIRE_LOGIN_OTP: z.enum(["true", "false"]).optional(),
+  AUTH_OTP_TTL_MINUTES: z.coerce.number().int().min(3).max(60).optional(),
   // Comma-separated list of admin emails (lower/upper case allowed)
   ADMIN_EMAILS: z.string().optional(),
   // When "true", admins can run analysis without token deductions.
@@ -22,8 +24,10 @@ export function getServerEnv(): ServerEnv {
   const parsed = envSchema.safeParse({
     DATABASE_URL: process.env.DATABASE_URL,
     NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    AUTH_EMAIL_FROM: process.env.AUTH_EMAIL_FROM,
+    AUTH_REQUIRE_LOGIN_OTP: process.env.AUTH_REQUIRE_LOGIN_OTP,
+    AUTH_OTP_TTL_MINUTES: process.env.AUTH_OTP_TTL_MINUTES,
     ADMIN_EMAILS: process.env.ADMIN_EMAILS,
     ADMIN_BYPASS_TOKENS: process.env.ADMIN_BYPASS_TOKENS
   });

@@ -1,4 +1,4 @@
-import {
+const {
   boolean,
   index,
   integer,
@@ -8,10 +8,9 @@ import {
   text,
   timestamp,
   uniqueIndex
-} from "drizzle-orm/pg-core";
+} = require("drizzle-orm/pg-core");
 
-// Auth.js / NextAuth (Drizzle Adapter) tables
-export const users = pgTable(
+const users = pgTable(
   "users",
   {
     id: text("id").primaryKey(),
@@ -30,12 +29,12 @@ export const users = pgTable(
   })
 );
 
-export const authOtpCodes = pgTable(
+const authOtpCodes = pgTable(
   "auth_otp_codes",
   {
     id: serial("id").primaryKey(),
     email: text("email").notNull(),
-    purpose: text("purpose").notNull(), // verify_email | login | reset_password
+    purpose: text("purpose").notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
     consumedAt: timestamp("consumed_at", { mode: "date" }),
@@ -50,7 +49,7 @@ export const authOtpCodes = pgTable(
   })
 );
 
-export const accounts = pgTable(
+const accounts = pgTable(
   "accounts",
   {
     userId: text("userId")
@@ -72,7 +71,7 @@ export const accounts = pgTable(
   })
 );
 
-export const sessions = pgTable("sessions", {
+const sessions = pgTable("sessions", {
   sessionToken: text("sessionToken").primaryKey(),
   userId: text("userId")
     .notNull()
@@ -80,7 +79,7 @@ export const sessions = pgTable("sessions", {
   expires: timestamp("expires", { mode: "date" }).notNull()
 });
 
-export const verificationTokens = pgTable(
+const verificationTokens = pgTable(
   "verificationToken",
   {
     identifier: text("identifier").notNull(),
@@ -92,8 +91,7 @@ export const verificationTokens = pgTable(
   })
 );
 
-// App tables (PRD)
-export const tokenBalances = pgTable(
+const tokenBalances = pgTable(
   "token_balances",
   {
     id: serial("id").primaryKey(),
@@ -108,13 +106,13 @@ export const tokenBalances = pgTable(
   })
 );
 
-export const analyses = pgTable("analyses", {
+const analyses = pgTable("analyses", {
   id: serial("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   fileName: text("file_name"),
-  kind: text("kind").notNull().default("optimize"), // optimize | fix_pressure
+  kind: text("kind").notNull().default("optimize"),
   parentAnalysisId: integer("parent_analysis_id"),
-  status: text("status"), // success | failed | processing
+  status: text("status"),
   nodesCount: integer("nodes_count"),
   pipesCount: integer("pipes_count"),
   issuesFound: integer("issues_found"),
@@ -123,16 +121,16 @@ export const analyses = pgTable("analyses", {
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
 });
 
-export const transactions = pgTable(
+const transactions = pgTable(
   "transactions",
   {
     id: serial("id").primaryKey(),
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     orderId: text("order_id").notNull(),
-    package: text("package"), // mauCoba | upsKurangDikit | bestValue | tenangSampaiSelesai
+    package: text("package"),
     tokens: integer("tokens"),
     amount: integer("amount"),
-    status: text("status"), // pending | paid | failed
+    status: text("status"),
     paymentMethod: text("payment_method"),
     snapToken: text("snap_token"),
     snapTokenExpiresAt: timestamp("snap_token_expires_at", { mode: "date" }),
@@ -143,3 +141,14 @@ export const transactions = pgTable(
     orderUnique: uniqueIndex("transactions_order_id_unique").on(table.orderId)
   })
 );
+
+module.exports = {
+  accounts,
+  analyses,
+  authOtpCodes,
+  sessions,
+  tokenBalances,
+  transactions,
+  users,
+  verificationTokens
+};

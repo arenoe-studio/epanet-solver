@@ -1,64 +1,55 @@
 "use client";
 
-import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-import { Button } from "@/components/ui/button";
-import { TOKEN_PACKAGES, type TokenPackageKey } from "@/lib/token-packages";
-import { formatIdr } from "@/lib/utils";
+import { TokenPackageCard } from "@/components/checkout/TokenPackageCard";
+import { TOKEN_PACKAGES_LIST } from "@/lib/token-packages";
 
 export function PricingSection() {
   const router = useRouter();
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
 
-  const packages = useMemo(() => {
-    return (Object.entries(TOKEN_PACKAGES) as Array<[TokenPackageKey, (typeof TOKEN_PACKAGES)[TokenPackageKey]]>)
-      .map(([key, pkg]) => ({ key, ...pkg }));
-  }, []);
-
   return (
-    <section className="pt-4">
-      <div className="mx-auto max-w-3xl text-center">
-        <h2 className="text-3xl font-bold tracking-[-0.035em] text-expo-black">
-          Paket Token
-        </h2>
-        <p className="mt-2 text-sm text-slate-gray">
-          Pembayaran dalam Rupiah (IDR). Token akan masuk setelah pembayaran terkonfirmasi.
-        </p>
-      </div>
+    <section id="pricing" className="py-20">
+      <div className="mx-auto max-w-6xl px-6">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
+            Harga
+          </div>
+          <h2 className="mt-2 text-3xl font-bold tracking-[-0.035em] text-expo-black">
+            Bayar sesuai kebutuhan. Token tidak expired.
+          </h2>
+          <p className="mt-3 text-sm text-slate-gray">
+            1x Analisis = 5 token · Fix Pressure = 3 token · Token tidak pernah kedaluwarsa
+          </p>
+        </div>
 
-      <div className="mx-auto mt-8 grid max-w-4xl gap-4 md:grid-cols-2">
-        {packages.map((pkg) => (
-          <div
-            key={pkg.key}
-            className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper"
-          >
-            <div className="text-base font-semibold text-expo-black">{pkg.name}</div>
-            <div className="mt-1 text-sm text-slate-gray">
-              {pkg.tokens} token untuk menjalankan analisis.
-            </div>
-            <div className="mt-5 text-3xl font-semibold tracking-[-2px] text-expo-black">
-              {formatIdr(pkg.amount)}
-            </div>
-            <Button
-              className="mt-5 w-full"
-              onClick={() => {
+        <div className="mx-auto mt-10 grid max-w-7xl gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {TOKEN_PACKAGES_LIST.map((pkg) => (
+            <TokenPackageCard
+              key={pkg.key}
+              pkg={pkg}
+              compact
+              onSelect={() => {
                 const href = `/checkout?package=${pkg.key}`;
                 if (!isLoggedIn) {
-                  router.push(`/api/auth/signin?callbackUrl=${encodeURIComponent(href)}`);
+                  router.push(`/login?callbackUrl=${encodeURIComponent(href)}`);
                   return;
                 }
                 router.push(href);
               }}
-            >
-              {isLoggedIn ? "Lanjut ke Pembayaran" : "Masuk untuk Membeli"}
-            </Button>
-          </div>
-        ))}
+              ctaLabel={isLoggedIn ? "Beli Sekarang" : "Masuk untuk Membeli"}
+            />
+          ))}
+        </div>
+
+        <p className="mt-8 text-center text-xs leading-relaxed text-slate-gray">
+          Semua analisis akurat 100% — token digunakan untuk akses ke output, bukan untuk
+          akurasi.
+        </p>
       </div>
     </section>
   );
 }
-

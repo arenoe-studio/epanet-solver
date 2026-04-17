@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 
 import { FileSelectedCard } from "@/components/sections/FileSelectedCard";
@@ -214,13 +214,12 @@ export default function UploadPage() {
           </p>
 
           <div className="mt-6 flex flex-wrap gap-2.5">
-            <button
+            <Link
               className="inline-flex h-11 items-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition hover:opacity-80 active:scale-[0.98]"
-              onClick={() => signIn("google", { callbackUrl: "/upload" })}
-              type="button"
+              href="/login?callbackUrl=%2Fupload"
             >
-              Masuk dengan Google
-            </button>
+              Masuk
+            </Link>
             <Link
               href="/#pricing"
               className="inline-flex h-11 items-center rounded-full border border-border-lavender bg-white px-7 text-base font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98]"

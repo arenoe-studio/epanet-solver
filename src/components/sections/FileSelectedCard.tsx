@@ -56,7 +56,7 @@ export function FileSelectedCard({
             </div>
           </div>
 
-          {(previewCounts && !previewLoading && !previewError) && (
+          {previewCounts && !previewLoading && !previewError ? (
             <div className="shrink-0 grid grid-cols-2 gap-x-6 gap-y-1 rounded-xl bg-cloud-gray/60 px-4 py-3 text-sm">
               <div className="text-slate-gray">Junction</div>
               <div className="text-right font-medium text-near-black">
@@ -75,20 +75,18 @@ export function FileSelectedCard({
                 {previewCounts.tanks}
               </div>
             </div>
-          )}
+          ) : null}
 
-          {previewLoading && (
-            <div className="text-sm text-slate-gray">Membaca file…</div>
-          )}
+          {previewLoading ? <div className="text-sm text-slate-gray">Membaca file...</div> : null}
         </div>
       </div>
 
-      {!canRun && (
+      {!canRun ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Token tidak cukup. Sisa:{" "}
-          <span className="font-semibold">{tokenBalance ?? 0}</span> — butuh 6.
+          <span className="font-semibold">{tokenBalance ?? 0}</span> — butuh 5.
         </div>
-      )}
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2.5">
         {canRun ? (

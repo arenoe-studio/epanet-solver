@@ -163,7 +163,7 @@ App-specific tables (beyond standard NextAuth adapter tables):
 | `analyses` | `status`, `issues_found`, `issues_fixed`, `tokens_used` | `tokens_used` defaults to **6** per analysis |
 | `transactions` | `order_id`, `package`, `tokens`, `amount`, `status`, `payment_method` | `status`: pending / paid / failed |
 
-Migrations are generated to `src/lib/db/migrations/`. `drizzle.config.ts` manually loads `.env.local` because Drizzle Kit does not auto-load Next.js env files — if `DATABASE_URL` is missing, the Drizzle commands will throw immediately with a clear message.
+Migrations are generated to `src/lib/db/migrations/`. `drizzle.config.js` manually loads `.env.local` because Drizzle Kit does not auto-load Next.js env files — if `DATABASE_URL` is missing, the Drizzle commands will throw immediately with a clear message. (The config points to `src/lib/db/schema.drizzle.js` to avoid esbuild binary spawning on Windows.)
 
 ## Environment Variables
 
@@ -173,8 +173,9 @@ Copy `.env.example` to `.env.local`. Variables are gated by phase:
 |---|---|---|
 | `DATABASE_URL` | 2+ | PostgreSQL (Neon) connection string |
 | `NEXTAUTH_URL`, `NEXTAUTH_SECRET` | 2+ | NextAuth session |
-| `GOOGLE_CLIENT_ID/SECRET` | 2+ | Google OAuth |
+| `RESEND_API_KEY` | 2+ | Email (OTP + transactional) |
+| `AUTH_REQUIRE_LOGIN_OTP` | 2+ | Require OTP on login |
+| `AUTH_OTP_TTL_MINUTES` | 2+ | OTP expiry (minutes) |
 | `PYTHON_API_URL` | 3 (local dev) | Points to `scripts/dev_server.py` |
 | `MIDTRANS_*` | 4+ | Payment gateway |
-| `RESEND_API_KEY` | 4+ | Transactional email |
 | `UPSTASH_REDIS_*` | 6+ | Rate limiting |

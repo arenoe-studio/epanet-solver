@@ -25,6 +25,8 @@ export async function GET() {
       amount: transactions.amount,
       status: transactions.status,
       paymentMethod: transactions.paymentMethod,
+      snapToken: transactions.snapToken,
+      snapTokenExpiresAt: transactions.snapTokenExpiresAt,
       createdAt: transactions.createdAt,
       paidAt: transactions.paidAt
     })
@@ -35,4 +37,3 @@ export async function GET() {
 
   return NextResponse.json({ items: rows });
 }
-

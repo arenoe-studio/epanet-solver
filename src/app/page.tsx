@@ -1,11 +1,15 @@
 "use client";
 
-import { signIn, useSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
+import { FAQSection } from "@/components/sections/FAQSection";
 import { HeroSection } from "@/components/sections/HeroSection";
 import { HowItWorks } from "@/components/sections/HowItWorks";
+import { NetworkPreviewStrip } from "@/components/sections/NetworkPreviewStrip";
 import { PricingSection } from "@/components/sections/PricingSection";
+import { TechnicalCredibility } from "@/components/sections/TechnicalCredibility";
+import { VideoTutorial } from "@/components/sections/VideoTutorial";
 
 export default function HomePage() {
   const router = useRouter();
@@ -13,25 +17,23 @@ export default function HomePage() {
   const isLoggedIn = status === "authenticated";
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-16">
-      <div className="space-y-20">
-        <HeroSection
-          isLoggedIn={isLoggedIn}
-          onPrimaryAction={() => {
-            if (isLoggedIn) {
-              router.push("/upload");
-              return;
-            }
-            signIn("google", { callbackUrl: "/upload" });
-          }}
-        />
-        <div id="how-it-works">
-          <HowItWorks />
-        </div>
-        <div id="pricing">
-          <PricingSection />
-        </div>
-      </div>
+    <main>
+      <HeroSection
+        isLoggedIn={isLoggedIn}
+        onPrimaryAction={() => {
+          if (isLoggedIn) {
+            router.push("/upload");
+            return;
+          }
+          router.push("/login?callbackUrl=%2Fupload");
+        }}
+      />
+      <NetworkPreviewStrip />
+      <HowItWorks />
+      <TechnicalCredibility />
+      <VideoTutorial />
+      <PricingSection />
+      <FAQSection />
     </main>
   );
 }

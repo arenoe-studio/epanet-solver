@@ -1,10 +1,8 @@
-import { existsSync } from "node:fs";
+const { existsSync } = require("node:fs");
 
-import dotenv from "dotenv";
-import { defineConfig } from "drizzle-kit";
+const dotenv = require("dotenv");
+const { defineConfig } = require("drizzle-kit");
 
-// Drizzle Kit does not automatically load Next.js `.env.local`.
-// Load it here so `DATABASE_URL` is available for `drizzle-kit push/generate/studio`.
 if (!process.env.DATABASE_URL) {
   if (existsSync(".env.local")) {
     dotenv.config({ path: ".env.local" });
@@ -20,8 +18,8 @@ if (!DATABASE_URL) {
   );
 }
 
-export default defineConfig({
-  schema: "./src/lib/db/schema.ts",
+module.exports = defineConfig({
+  schema: "./src/lib/db/schema.drizzle.js",
   out: "./src/lib/db/migrations",
   dialect: "postgresql",
   dbCredentials: {

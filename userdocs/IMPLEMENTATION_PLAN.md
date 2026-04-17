@@ -1,6 +1,8 @@
 # Implementation Plan — EPANET Solver Web App
 ## Versi 1.0 | April 2026
 
+> Catatan (April 2026): Auth sudah diubah dari Google OAuth menjadi **email + password + kode verifikasi (OTP via email)**. Bagian-bagian yang menyebut Google OAuth mungkin tidak relevan lagi.
+
 ---
 
 ## Daftar Isi
@@ -926,7 +928,7 @@ if (!body.success) return Response.json({ error: 'Invalid input' }, { status: 40
 
 ```typescript
 const required = [
-  'DATABASE_URL', 'NEXTAUTH_SECRET', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+'DATABASE_URL', 'NEXTAUTH_SECRET', 'RESEND_API_KEY',
   'MIDTRANS_SERVER_KEY', 'MIDTRANS_CLIENT_KEY', 'RESEND_API_KEY',
 ] as const;
 
@@ -1058,8 +1060,9 @@ NEXTAUTH_SECRET=<32-byte random: openssl rand -base64 32>
 NEXTAUTH_URL=http://localhost:3000
 
 # Google OAuth
-GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
+RESEND_API_KEY=re_*****
+AUTH_REQUIRE_LOGIN_OTP=true
+AUTH_OTP_TTL_MINUTES=10
 
 # Midtrans
 MIDTRANS_SERVER_KEY=SB-Mid-server-xxxxx
