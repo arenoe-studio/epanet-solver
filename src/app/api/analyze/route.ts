@@ -139,46 +139,48 @@ export async function POST(req: Request) {
         })
         .where(eq(analyses.id, analysisId));
     } else {
+      let updated: Array<{ balance: number | null }> = [];
       try {
-        await db.transaction(async (tx) => {
-          const updated = await tx
-            .update(tokenBalances)
-            .set({
-              balance: sql`${tokenBalances.balance} - ${ANALYSIS_TOKEN_COST}`,
-              totalUsed: sql`${tokenBalances.totalUsed} + ${ANALYSIS_TOKEN_COST}`
-            })
-            .where(
-              and(
-                eq(tokenBalances.userId, userId),
-                gte(tokenBalances.balance, ANALYSIS_TOKEN_COST)
-              )
+        updated = await db
+          .update(tokenBalances)
+          .set({
+            balance: sql`${tokenBalances.balance} - ${ANALYSIS_TOKEN_COST}`,
+            totalUsed: sql`${tokenBalances.totalUsed} + ${ANALYSIS_TOKEN_COST}`,
+            updatedAt: new Date()
+          })
+          .where(
+            and(
+              eq(tokenBalances.userId, userId),
+              gte(tokenBalances.balance, ANALYSIS_TOKEN_COST)
             )
-            .returning({ balance: tokenBalances.balance });
-
-          if (updated.length === 0) {
-            throw new Error("Insufficient tokens");
-          }
-
-          await tx
-            .update(analyses)
-            .set({
-              status: "success",
-              nodesCount: result.summary.nodes,
-              pipesCount: result.summary.pipes,
-              issuesFound: result.summary.issuesFound,
-              issuesFixed: result.summary.issuesFixed
-            })
-            .where(eq(analyses.id, analysisId));
-        });
+          )
+          .returning({ balance: tokenBalances.balance });
       } catch {
-        await db
-          .update(analyses)
-          .set({ status: "failed" })
-          .where(eq(analyses.id, analysisId));
+        await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
+        return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+      }
+
+      if (updated.length === 0) {
+        await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
         return NextResponse.json(
           { success: false, error: "Insufficient tokens" },
           { status: 402 }
         );
+      }
+
+      try {
+        await db
+          .update(analyses)
+          .set({
+            status: "success",
+            nodesCount: result.summary.nodes,
+            pipesCount: result.summary.pipes,
+            issuesFound: result.summary.issuesFound,
+            issuesFixed: result.summary.issuesFixed
+          })
+          .where(eq(analyses.id, analysisId));
+      } catch {
+        // If persisting the analysis metadata fails, still return the analysis result.
       }
     }
 
