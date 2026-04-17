@@ -1,0 +1,30 @@
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+.npm-cache/
+
+# Env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data outputs
+data_output/

@@ -1,0 +1,209 @@
+import { NextResponse } from "next/server";
+
+import { and, eq, gte, sql } from "drizzle-orm";
+import { z } from "zod";
+
+import { auth } from "@/lib/auth-server";
+import { shouldBypassTokensForEmail } from "@/lib/admin";
+import { getDb } from "@/lib/db";
+import { analyses, tokenBalances } from "@/lib/db/schema";
+import { rateLimitAnalyze } from "@/lib/ratelimit";
+
+export const dynamic = "force-dynamic";
+
+const TOKENS_PER_ANALYSIS = 6;
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
+function getPythonUrl(requestUrl: string) {
+  if (process.env.PYTHON_API_URL) return process.env.PYTHON_API_URL;
+  return new URL("/api/analyze_python", requestUrl).toString();
+}
+
+export async function POST(req: Request) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  const userEmail = session?.user?.email;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const bypassTokens = shouldBypassTokensForEmail(userEmail);
+
+  const rl = await rateLimitAnalyze(`user:${userId}`);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests", retryAfterSeconds: rl.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
+
+  const formData = await req.formData();
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "Missing file" }, { status: 400 });
+  }
+  if (!file.name.toLowerCase().endsWith(".inp")) {
+    return NextResponse.json({ error: "Invalid file type" }, { status: 400 });
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return NextResponse.json({ error: "File too large" }, { status: 400 });
+  }
+
+  const db = getDb();
+
+  if (!bypassTokens) {
+    const existingBalance = await db
+      .select({ id: tokenBalances.id, balance: tokenBalances.balance })
+      .from(tokenBalances)
+      .where(eq(tokenBalances.userId, userId))
+      .limit(1);
+
+    if (existingBalance.length === 0) {
+      await db.insert(tokenBalances).values({
+        userId,
+        balance: 0,
+        totalBought: 0,
+        totalUsed: 0
+      });
+      return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
+    }
+
+    const balance = existingBalance[0]?.balance ?? 0;
+    if (balance < TOKENS_PER_ANALYSIS) {
+      return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
+    }
+  }
+
+  const inserted = await db
+    .insert(analyses)
+    .values({
+      userId,
+      fileName: file.name,
+      status: "processing",
+      tokensUsed: bypassTokens ? 0 : TOKENS_PER_ANALYSIS
+    })
+    .returning({ id: analyses.id });
+
+  const analysisId = inserted[0]?.id;
+  if (!analysisId) {
+    return NextResponse.json({ error: "Failed to create analysis" }, { status: 500 });
+  }
+
+  const pythonFormData = new FormData();
+  pythonFormData.set("file", file);
+
+  let pythonJson: unknown = null;
+  let pythonStatus = 500;
+  try {
+    const pythonRes = await fetch(getPythonUrl(req.url), {
+      method: "POST",
+      body: pythonFormData
+    });
+    pythonStatus = pythonRes.status;
+    const text = await pythonRes.text();
+    try {
+      pythonJson = text ? JSON.parse(text) : null;
+    } catch {
+      pythonJson = { success: false, refund: true, error: "System error" };
+      pythonStatus = 500;
+    }
+  } catch {
+    pythonJson = { success: false, refund: true, error: "System error" };
+    pythonStatus = 500;
+  }
+
+  const successSchema = z.object({
+    success: z.literal(true),
+    summary: z.object({
+      iterations: z.number(),
+      issuesFound: z.number(),
+      issuesFixed: z.number(),
+      remainingIssues: z.number().optional(),
+      duration: z.number().optional(),
+      nodes: z.number(),
+      pipes: z.number(),
+      fileName: z.string().optional()
+    }),
+    files: z.object({
+      inp: z.string(),
+      md: z.string()
+    })
+  });
+
+  const failSchema = z.object({
+    success: z.literal(false),
+    refund: z.boolean().optional(),
+    error: z.string().optional()
+  });
+
+  const parsedSuccess = successSchema.safeParse(pythonJson);
+  const parsedFail = failSchema.safeParse(pythonJson);
+
+  if (parsedSuccess.success) {
+    const result = parsedSuccess.data;
+    if (bypassTokens) {
+      await db
+        .update(analyses)
+        .set({
+          status: "success",
+          nodesCount: result.summary.nodes,
+          pipesCount: result.summary.pipes,
+          issuesFound: result.summary.issuesFound,
+          issuesFixed: result.summary.issuesFixed
+        })
+        .where(eq(analyses.id, analysisId));
+    } else {
+      try {
+        await db.transaction(async (tx) => {
+          const updated = await tx
+            .update(tokenBalances)
+            .set({
+              balance: sql`${tokenBalances.balance} - ${TOKENS_PER_ANALYSIS}`,
+              totalUsed: sql`${tokenBalances.totalUsed} + ${TOKENS_PER_ANALYSIS}`
+            })
+            .where(
+              and(
+                eq(tokenBalances.userId, userId),
+                gte(tokenBalances.balance, TOKENS_PER_ANALYSIS)
+              )
+            )
+            .returning({ balance: tokenBalances.balance });
+
+          if (updated.length === 0) {
+            throw new Error("Insufficient tokens");
+          }
+
+          await tx
+            .update(analyses)
+            .set({
+              status: "success",
+              nodesCount: result.summary.nodes,
+              pipesCount: result.summary.pipes,
+              issuesFound: result.summary.issuesFound,
+              issuesFixed: result.summary.issuesFixed
+            })
+            .where(eq(analyses.id, analysisId));
+        });
+      } catch {
+        await db
+          .update(analyses)
+          .set({ status: "failed" })
+          .where(eq(analyses.id, analysisId));
+        return NextResponse.json(
+          { success: false, error: "Insufficient tokens" },
+          { status: 402 }
+        );
+      }
+    }
+
+    return NextResponse.json(result);
+  }
+
+  await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
+  const error = parsedFail.success ? (parsedFail.data.error ?? "System error") : "System error";
+
+  return NextResponse.json(
+    { success: false, error },
+    { status: pythonStatus === 422 ? 422 : 500 }
+  );
+}
