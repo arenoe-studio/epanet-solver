@@ -142,19 +142,25 @@ export function getAuthOptions(): NextAuthOptions {
       signIn: "/login"
     },
     session: {
-      strategy: "database"
+      strategy: "jwt"
     },
     callbacks: {
-      async session({ session, user }) {
-        const email = session.user?.email;
-        const userIsAdmin = isAdminEmail(email);
+      async jwt({ token, user }) {
+        if (user) {
+          token.id = user.id;
+          token.isAdmin = isAdminEmail(user.email ?? "");
+        }
+        return token;
+      },
+      async session({ session, token }) {
         if (session.user) {
-          session.user.isAdmin = userIsAdmin;
-          if (user?.id && !session.user.id) {
-            session.user.id = user.id;
-          }
+          session.user.id = token.id as string;
+          session.user.isAdmin = token.isAdmin as boolean;
         } else {
-          session.user = { isAdmin: userIsAdmin, id: user?.id };
+          session.user = {
+            id: token.id as string,
+            isAdmin: token.isAdmin as boolean,
+          };
         }
         return session;
       }
