@@ -153,6 +153,18 @@ Accepts multipart file upload, runs the full analysis pipeline, and returns base
 
 HTTP 422 = `UserError` (invalid file, no token refund). HTTP 500 = system error (refund=true).
 
+## Database Schema (`src/lib/db/schema.ts`)
+
+App-specific tables (beyond standard NextAuth adapter tables):
+
+| Table | Key columns | Notes |
+|---|---|---|
+| `token_balances` | `balance`, `total_bought`, `total_used` | One row per user |
+| `analyses` | `status`, `issues_found`, `issues_fixed`, `tokens_used` | `tokens_used` defaults to **6** per analysis |
+| `transactions` | `order_id`, `package`, `tokens`, `amount`, `status`, `payment_method` | `status`: pending / paid / failed |
+
+Migrations are generated to `src/lib/db/migrations/`. `drizzle.config.ts` manually loads `.env.local` because Drizzle Kit does not auto-load Next.js env files — if `DATABASE_URL` is missing, the Drizzle commands will throw immediately with a clear message.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env.local`. Variables are gated by phase:
