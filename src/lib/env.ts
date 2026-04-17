@@ -33,7 +33,7 @@ export function getServerEnv(): ServerEnv {
       .map((i) => i.path.join("."))
       .filter(Boolean);
     throw new Error(
-      `Missing/invalid server env vars: ${missing.join(", ")}. Copy .env.example → .env.local and fill values.`
+      `Missing/invalid server env vars: ${missing.join(", ")}. Copy .env.example -> .env.local and fill values.`
     );
   }
 
