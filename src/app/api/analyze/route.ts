@@ -8,6 +8,7 @@ import { shouldBypassTokensForEmail } from "@/lib/admin";
 import { getDb } from "@/lib/db";
 import { analyses, tokenBalances } from "@/lib/db/schema";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
+import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 
 export const dynamic = "force-dynamic";
 
@@ -52,23 +53,8 @@ export async function POST(req: Request) {
   const db = getDb();
 
   if (!bypassTokens) {
-    const existingBalance = await db
-      .select({ id: tokenBalances.id, balance: tokenBalances.balance })
-      .from(tokenBalances)
-      .where(eq(tokenBalances.userId, userId))
-      .limit(1);
-
-    if (existingBalance.length === 0) {
-      await db.insert(tokenBalances).values({
-        userId,
-        balance: 0,
-        totalBought: 0,
-        totalUsed: 0
-      });
-      return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
-    }
-
-    const balance = existingBalance[0]?.balance ?? 0;
+    const existingBalance = await ensureInitialTokenBalanceRow(db, userId);
+    const balance = existingBalance.balance ?? 0;
     if (balance < TOKENS_PER_ANALYSIS) {
       return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
     }

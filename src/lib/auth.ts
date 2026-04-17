@@ -3,16 +3,15 @@ import GoogleProvider from "next-auth/providers/google";
 import crypto from "node:crypto";
 
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import { eq } from "drizzle-orm";
 import type { Adapter } from "next-auth/adapters";
 
 import { isAdminEmail } from "@/lib/admin";
 import { getServerEnv } from "@/lib/env";
 import { getDb } from "@/lib/db";
+import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import {
   accounts,
   sessions,
-  tokenBalances,
   users,
   verificationTokens
 } from "@/lib/db/schema";
@@ -69,20 +68,7 @@ export function getAuthOptions(): NextAuthOptions {
         if (!userId) return;
 
         const db = getDb();
-        const existing = await db
-          .select({ id: tokenBalances.id })
-          .from(tokenBalances)
-          .where(eq(tokenBalances.userId, userId))
-          .limit(1);
-
-        if (existing.length > 0) return;
-
-        await db.insert(tokenBalances).values({
-          userId,
-          balance: 6,
-          totalBought: 6,
-          totalUsed: 0
-        });
+        await ensureInitialTokenBalanceRow(db, userId);
       }
     }
   };
