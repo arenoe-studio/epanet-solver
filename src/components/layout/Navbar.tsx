@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { signIn, signOut, useSession } from "next-auth/react";
+import { usePathname } from "next/navigation";
 
 import { AnalysisHistoryModal } from "@/components/modals/AnalysisHistoryModal";
 import { BuyTokenModal } from "@/components/modals/BuyTokenModal";
@@ -16,6 +18,7 @@ export function Navbar() {
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement | null>(null);
 
+  const pathname = usePathname();
   const { data: session, status } = useSession();
   const isLoggedIn = status === "authenticated";
   const user = session?.user ?? null;
@@ -64,13 +67,28 @@ export function Navbar() {
       .join("");
   }, [user?.name]);
 
+  const navItems = useMemo(
+    () => [
+      { href: "/", label: "Beranda" },
+      { href: "/upload", label: "Upload" },
+      { href: "/checkout", label: "Checkout" },
+      { href: "/contact", label: "Kontak" }
+    ],
+    []
+  );
+
   return (
     <header className="sticky top-0 z-50 border-b border-border-lavender bg-white/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <button
+        <Link
+          href="/"
+          aria-label="Kembali ke beranda"
           className="flex items-center gap-2 text-sm font-bold tracking-[-0.03em] text-expo-black transition-opacity hover:opacity-60"
-          onClick={() => window.location.reload()}
-          type="button"
+          onClick={() => {
+            if (pathname === "/") {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          }}
         >
           <svg
             width="16"
@@ -89,11 +107,31 @@ export function Navbar() {
             />
           </svg>
           EPANET Solver
-        </button>
+        </Link>
+
+        <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
+          {navItems.map((item) => {
+            const isActive =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-full px-3 py-1.5 text-sm transition ${
+                  isActive
+                    ? "bg-cloud-gray font-semibold text-expo-black"
+                    : "text-slate-gray hover:bg-cloud-gray hover:text-expo-black"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
         {!isLoggedIn ? (
           <button
-            onClick={() => signIn("google")}
+            onClick={() => signIn("google", { callbackUrl: "/upload" })}
             type="button"
             className="inline-flex h-9 items-center gap-2 rounded-full bg-expo-black px-5 text-sm font-semibold text-white transition-opacity hover:opacity-80 active:scale-[0.98]"
           >
