@@ -94,8 +94,8 @@ def _prv_recommendations(md: list[str], prv: dict) -> None:
         md.append("_Tidak ada rekomendasi PRV._")
         return
 
-    md.append("| No | Pipe | Upstream | Downstream | Setting (m head) | Covered Nodes |")
-    md.append("|----|------|----------|------------|------------------|--------------|")
+    md.append("| No | Pipe | Upstream | Downstream | Setting (m) | Covered Nodes |")
+    md.append("|----|------|----------|------------|------------|--------------|")
     for i, r in enumerate(recs, 1):
         md.append(
             f"| {i} | {r.get('pipeId')} | {r.get('upstreamNode')} | {r.get('downstreamNode')} "
@@ -234,4 +234,3 @@ def export_markdown_report(
     md.append("")
 
     output_path.write_text("\n".join(md), encoding="utf-8")
-

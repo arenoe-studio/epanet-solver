@@ -110,7 +110,7 @@ class handler(BaseHTTPRequestHandler):
             sim_after = run_simulation(wn_opt)
             after_eval = evaluate_network(wn_opt, sim_after)
 
-            materials = material_recommendations_for_network(wn_opt, sim_after)
+            materials_v1 = material_recommendations_for_network(wn_opt, sim_after)
             prv = analyze_prv_recommendations(wn_opt, sim_after, after_eval)
 
             out_inp_v1 = tmp_dir / f"{uuid.uuid4()}_optimized_network_v1.inp"
@@ -125,7 +125,7 @@ class handler(BaseHTTPRequestHandler):
                 after_eval=after_eval,
                 diameter_changes=diameter_changes,
                 snapshots=snapshots,
-                materials=materials,
+                materials=materials_v1,
                 prv=prv,
                 output_path=out_md_v1,
                 report_kind="v1",
@@ -140,8 +140,47 @@ class handler(BaseHTTPRequestHandler):
                 prv_valves = [row.get("prvValve") for row in (prv_fix_log or []) if row.get("prvValve")]
                 prv_tune_log = fine_tune_prvs(wn_opt, prv_valves)
 
+                # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
+                # changed hydraulics. Keep within serverless time limits by using
+                # remaining time from the original 20s budget.
+                remaining = 20.0 - (time.time() - start)
+                rerun_budget = max(3.0, min(12.0, remaining))
+                rerun_iters = min(10, MAX_ITERATIONS_SERVERLESS)
+
+                wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
+                    wn_opt,
+                    max_iterations=rerun_iters,
+                    time_budget_s=rerun_budget,
+                )
+                wn_opt = wn_opt2
+
+                # Merge diameter change history: preserve earliest "before" while
+                # updating latest "after"/reason.
+                for pid, ch2 in (diameter_changes2 or {}).items():
+                    if pid in diameter_changes:
+                        diameter_changes[pid]["after"] = ch2.get("after")
+                        diameter_changes[pid]["reason"] = ch2.get("reason")
+                        diameter_changes[pid]["category"] = ch2.get("category")
+                    else:
+                        diameter_changes[pid] = ch2
+
+                # Append rerun snapshots with phase-aware iteration labels.
+                for s in snapshots2 or []:
+                    s2 = dict(s)
+                    s2["iter"] = f"R2-{s.get('iter')}"
+                    snapshots.append(s2)
+
+                # After diameters changed again, re-tune PRVs once more (same PRV ids).
+                if prv_valves:
+                    prv_tune_log2 = fine_tune_prvs(wn_opt, prv_valves)
+                    if prv_tune_log2:
+                        prv_tune_log = (prv_tune_log or []) + [
+                            dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
+                        ]
+
                 sim_final = run_simulation(wn_opt)
                 final_eval = evaluate_network(wn_opt, sim_final)
+                materials_final = material_recommendations_for_network(wn_opt, sim_final)
 
                 out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
                 out_md_final = tmp_dir / f"{uuid.uuid4()}_analysis_report_final.md"
@@ -155,7 +194,7 @@ class handler(BaseHTTPRequestHandler):
                     after_eval=final_eval,
                     diameter_changes=diameter_changes,
                     snapshots=snapshots,
-                    materials=materials,
+                    materials=materials_final,
                     prv=prv,
                     output_path=out_md_final,
                     report_kind="final",
