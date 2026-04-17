@@ -24,6 +24,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
       velocity : Series (pipa â†’ kecepatan m/s)
       headloss : Series (pipa â†’ headloss per km, m/km)
       flow     : Series (pipa â†’ debit mÂ³/s)
+      head     : Series (node â†’ head, m)
 
     Catatan: wn.sim_time direset ke 0 sebelum setiap run agar iterasi
     ke-2+ tidak dimulai dari akhir durasi simulasi (bug WNTR WNTRSimulator).
@@ -58,6 +59,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
         "headloss": pd.Series(hl_per_km),
         "flow":     flow.reindex(wn.pipe_name_list).fillna(0),
+        "head":     head,
     }
 
 
@@ -82,31 +84,43 @@ def evaluate_network(
     velocity = sim_results["velocity"]
     headloss = sim_results["headloss"]
     violations: list[dict] = []
+    vhl_violations = 0
 
     # --- Tekanan node --------------------------------------------------------
     node_status: dict = {}
     for nid, p in pressure.items():
         flags: list[str] = []
         if p < 0:
+            code = "P-NEG"
             flags.append(f"P-NEG ({p:.2f} m)")
-        if p < PRESSURE_MIN:
+        elif p < PRESSURE_MIN:
+            code = "P-LOW"
             flags.append(f"P-LOW ({p:.2f} m < {PRESSURE_MIN} m)")
             violations.append({
                 "element": nid, "type": "NODE", "issue": "P-LOW",
                 "value": p, "threshold": PRESSURE_MIN, "unit": "m", "priority": "HIGH",
             })
-        if p > PRESSURE_MAX:
+        elif p > PRESSURE_MAX:
+            code = "P-HIGH"
             flags.append(f"P-HIGH ({p:.2f} m > {PRESSURE_MAX} m)")
             violations.append({
                 "element": nid, "type": "NODE", "issue": "P-HIGH",
                 "value": p, "threshold": PRESSURE_MAX, "unit": "m", "priority": "MEDIUM",
             })
-        node_status[nid] = {"pressure": p, "ok": len(flags) == 0, "flags": flags}
+        else:
+            code = "P-OK"
+
+        node_status[nid] = {
+            "pressure": p,
+            "ok": len(flags) == 0,
+            "flags": flags,
+            "code": code,
+        }
 
     # --- Kecepatan & headloss pipa ------------------------------------------
     pipe_status: dict = {}
     for pid in wn.pipe_name_list:
-        v   = float(velocity.get(pid, 0.0))
+        v   = abs(float(velocity.get(pid, 0.0)))
         hl  = float(headloss.get(pid, 0.0))
         d_m = wn.get_link(pid).diameter
         fl  = float(sim_results["flow"].get(pid, 0.0))
@@ -116,7 +130,7 @@ def evaluate_network(
         if v > VELOCITY_MAX:
             flags.append(f"V-HIGH ({v:.3f} m/s > {VELOCITY_MAX})")
             issues.add("V-HIGH")
-        if v < VELOCITY_MIN and abs(v) > 1e-6:
+        if v < VELOCITY_MIN:
             flags.append(f"V-LOW ({v:.3f} m/s < {VELOCITY_MIN})")
             issues.add("V-LOW")
         if hl > HL_MAX:
@@ -142,6 +156,7 @@ def evaluate_network(
                 "unit":      "m/s" if "V" in code else "m/km",
                 "priority":  priority,
             })
+            vhl_violations += 1
 
         pipe_status[pid] = {
             "velocity": v, "headloss": hl, "diameter": d_m,
@@ -154,5 +169,6 @@ def evaluate_network(
         "pipe_status": pipe_status,
         "violations":  violations,
         "all_ok":      len(violations) == 0,
+        "all_vhl_ok":  vhl_violations == 0,
     }
 

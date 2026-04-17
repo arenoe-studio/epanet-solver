@@ -21,6 +21,7 @@ export default function UploadPage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isFixingPressure, setIsFixingPressure] = useState(false);
 
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
@@ -64,6 +65,7 @@ export default function UploadPage() {
   async function runAnalysis() {
     if (!selectedFile) return;
     if (isAnalyzing) return;
+    if (isFixingPressure) return;
     if (!canRunAnalysis) {
       openBuyTokenModal();
       push({ title: "Saldo token tidak cukup", variant: "error" });
@@ -107,9 +109,13 @@ export default function UploadPage() {
       }
 
       const nextResult: AnalysisResult = {
+        analysisId: json.analysisId,
         fileName: json.summary?.fileName ?? selectedFile.name,
         summary: json.summary,
-        files: json.files
+        prv: json.prv,
+        files: json.files,
+        filesV1: json.filesV1,
+        filesFinal: json.filesFinal
       };
 
       setResult(nextResult);
@@ -123,6 +129,76 @@ export default function UploadPage() {
       void refreshBalance();
       setState("error");
       push({ title: "Analisis gagal", variant: "error" });
+    }
+  }
+
+  async function runFixPressure() {
+    if (!selectedFile) return;
+    if (!result?.analysisId) return;
+    if (isAnalyzing) return;
+    if (isFixingPressure) return;
+
+    if (!canRunAnalysis) {
+      openBuyTokenModal();
+      push({ title: "Saldo token tidak cukup", variant: "error" });
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsFixingPressure(true);
+    setState("processing");
+
+    const fd = new FormData();
+    fd.set("file", selectedFile);
+    fd.set("parentAnalysisId", String(result.analysisId));
+
+    try {
+      const res = await fetch("/api/fix-pressure", { method: "POST", body: fd });
+      const json = (await res.json()) as any;
+
+      if (res.status === 402) {
+        setIsFixingPressure(false);
+        setState("results");
+        void refreshBalance();
+        openBuyTokenModal();
+        push({ title: "Saldo token tidak cukup", variant: "error" });
+        return;
+      }
+
+      if (!res.ok || !json?.success) {
+        const msg = json?.error ?? "Terjadi kesalahan sistem.";
+        setErrorMessage(msg);
+        setIsFixingPressure(false);
+        setState("results");
+        push({
+          title: "Fix pressure gagal",
+          description: res.status === 422 ? "File tidak dapat diproses." : msg,
+          variant: "error"
+        });
+        return;
+      }
+
+      const updated: AnalysisResult = {
+        analysisId: json.analysisId,
+        fileName: json.summary?.fileName ?? selectedFile.name,
+        summary: json.summary,
+        prv: json.prv,
+        files: json.files,
+        filesV1: json.filesV1,
+        filesFinal: json.filesFinal
+      };
+
+      setResult(updated);
+      setIsFixingPressure(false);
+      void refreshBalance();
+      setState("results");
+      push({ title: "Fix pressure selesai", variant: "success" });
+    } catch {
+      setErrorMessage("Terjadi kesalahan sistem.");
+      setIsFixingPressure(false);
+      void refreshBalance();
+      setState("results");
+      push({ title: "Fix pressure gagal", variant: "error" });
     }
   }
 
@@ -198,10 +274,11 @@ export default function UploadPage() {
 
       {state === "processing" ? (
         <ProcessingState
-          isDone={!isAnalyzing}
+          isDone={!isAnalyzing && !isFixingPressure}
           isError={false}
           onCancel={() => {
             setIsAnalyzing(false);
+            setIsFixingPressure(false);
             setState("file-selected");
           }}
         />
@@ -216,6 +293,8 @@ export default function UploadPage() {
               setResult(null);
               setState("upload");
             }}
+            onFixPressure={runFixPressure}
+            isFixingPressure={isFixingPressure}
           />
         ) : null
       ) : null}

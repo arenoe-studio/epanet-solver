@@ -20,6 +20,8 @@ export async function GET() {
     .select({
       id: analyses.id,
       fileName: analyses.fileName,
+      kind: analyses.kind,
+      parentAnalysisId: analyses.parentAnalysisId,
       status: analyses.status,
       issuesFound: analyses.issuesFound,
       issuesFixed: analyses.issuesFixed,
@@ -32,4 +34,3 @@ export async function GET() {
 
   return NextResponse.json({ items: rows });
 }
-

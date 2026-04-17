@@ -22,12 +22,18 @@ MAX_ITERATIONS_SERVERLESS = 15  # keep within typical serverless time limits
 THIS_DIR = Path(__file__).parent
 sys.path.insert(0, str(THIS_DIR))
 
+try:
+    from epanet.network_io import InpValidationError  # type: ignore
+except Exception:  # pragma: no cover
+    class InpValidationError(Exception):
+        pass
+
 
 def _get_tmp_dir() -> Path:
     return Path(os.environ.get("TMPDIR") or tempfile.gettempdir())
 
 
-def _read_multipart_file(handler: BaseHTTPRequestHandler) -> tuple[str, bytes]:
+def _read_multipart_file(handler: BaseHTTPRequestHandler) -> tuple[str, bytes, str]:
     content_type = handler.headers.get("content-type") or handler.headers.get("Content-Type")
     if not content_type or "multipart/form-data" not in content_type:
         raise UserError("Invalid content-type (expected multipart/form-data).")
@@ -44,7 +50,12 @@ def _read_multipart_file(handler: BaseHTTPRequestHandler) -> tuple[str, bytes]:
     file_item = form["file"]
     filename = getattr(file_item, "filename", None) or "network.inp"
     data = file_item.file.read()
-    return filename, data
+    action = None
+    try:
+        action = form.getfirst("action")
+    except Exception:
+        action = None
+    return filename, data, (action or "analyze")
 
 
 def _b64_file(path: Path) -> str:
@@ -56,13 +67,15 @@ class handler(BaseHTTPRequestHandler):
         start = time.time()
         tmp_dir = _get_tmp_dir()
         inp_path = None
-        out_inp = None
-        out_md = None
+        out_inp_v1 = None
+        out_md_v1 = None
+        out_inp_final = None
+        out_md_final = None
 
         try:
             os.chdir(str(tmp_dir))
 
-            filename, inp_bytes = _read_multipart_file(self)
+            filename, inp_bytes, action = _read_multipart_file(self)
             if not filename.lower().endswith(".inp"):
                 raise UserError("Invalid file type (expected .inp).")
             if len(inp_bytes) > 10 * 1024 * 1024:
@@ -74,55 +87,119 @@ class handler(BaseHTTPRequestHandler):
             from epanet.network_io import export_optimized_inp, load_network
             from epanet.optimizer import optimize_diameters
             from epanet.reporter import export_markdown_report
+            from epanet.materials import material_recommendations_for_network
+            from epanet.prv import analyze_prv_recommendations, apply_prvs, fine_tune_prvs
+            from epanet.simulation import run_simulation, evaluate_network
+
+            if action not in ("analyze", "fix_pressure"):
+                raise UserError("Invalid action (expected analyze or fix_pressure).")
 
             wn = load_network(inp_path)
-            wn_opt, final_eval, diameter_changes, snapshots = optimize_diameters(
-                wn, max_iterations=MAX_ITERATIONS_SERVERLESS
+
+            # Modul 1: baseline
+            sim_baseline = run_simulation(wn)
+            baseline_eval = evaluate_network(wn, sim_baseline)
+
+            # Modul 2: diameter optimization (serverless guard)
+            wn_opt, after_eval, diameter_changes, snapshots = optimize_diameters(
+                wn,
+                max_iterations=MAX_ITERATIONS_SERVERLESS,
+                time_budget_s=20.0,
             )
 
-            before_eval = snapshots[0]["eval_before"] if snapshots else final_eval
-            after_eval = final_eval
+            sim_after = run_simulation(wn_opt)
+            after_eval = evaluate_network(wn_opt, sim_after)
 
-            out_inp = tmp_dir / f"{uuid.uuid4()}_optimized_network.inp"
-            out_md = tmp_dir / f"{uuid.uuid4()}_analysis_report.md"
+            materials = material_recommendations_for_network(wn_opt, sim_after)
+            prv = analyze_prv_recommendations(wn_opt, sim_after, after_eval)
 
-            export_optimized_inp(inp_path, wn_opt, out_inp)
+            out_inp_v1 = tmp_dir / f"{uuid.uuid4()}_optimized_network_v1.inp"
+            out_md_v1 = tmp_dir / f"{uuid.uuid4()}_analysis_report_v1.md"
+
+            export_optimized_inp(inp_path, wn_opt, out_inp_v1)
             export_markdown_report(
                 inp_path=inp_path,
+                file_name=filename,
                 wn_orig=wn,
-                before_eval=before_eval,
+                baseline_eval=baseline_eval,
                 after_eval=after_eval,
                 diameter_changes=diameter_changes,
                 snapshots=snapshots,
-                output_path=out_md,
-                optimize_ran=True,
+                materials=materials,
+                prv=prv,
+                output_path=out_md_v1,
+                report_kind="v1",
             )
+
+            prv_fix_log = None
+            prv_tune_log = None
+            final_eval = after_eval
+
+            if action == "fix_pressure" and prv.get("needed"):
+                prv_fix_log = apply_prvs(wn_opt, prv.get("recommendations") or [])
+                prv_valves = [row.get("prvValve") for row in (prv_fix_log or []) if row.get("prvValve")]
+                prv_tune_log = fine_tune_prvs(wn_opt, prv_valves)
+
+                sim_final = run_simulation(wn_opt)
+                final_eval = evaluate_network(wn_opt, sim_final)
+
+                out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
+                out_md_final = tmp_dir / f"{uuid.uuid4()}_analysis_report_final.md"
+
+                export_optimized_inp(inp_path, wn_opt, out_inp_final)
+                export_markdown_report(
+                    inp_path=inp_path,
+                    file_name=filename,
+                    wn_orig=wn,
+                    baseline_eval=baseline_eval,
+                    after_eval=final_eval,
+                    diameter_changes=diameter_changes,
+                    snapshots=snapshots,
+                    materials=materials,
+                    prv=prv,
+                    output_path=out_md_final,
+                    report_kind="final",
+                    prv_fix_log=prv_fix_log,
+                    prv_tune_log=prv_tune_log,
+                )
 
             response = {
                 "success": True,
                 "summary": {
                     "iterations": len(snapshots),
-                    "issuesFound": len(before_eval.get("violations", [])),
-                    "issuesFixed": len(before_eval.get("violations", []))
-                    - len(after_eval.get("violations", [])),
-                    "remainingIssues": len(after_eval.get("violations", [])),
+                    "issuesFound": len(baseline_eval.get("violations", [])),
+                    "issuesFixed": len(baseline_eval.get("violations", []))
+                    - len(final_eval.get("violations", [])),
+                    "remainingIssues": len(final_eval.get("violations", [])),
                     "duration": round(time.time() - start),
                     "nodes": wn.num_junctions,
                     "pipes": wn.num_pipes,
                     "fileName": filename,
                 },
-                "files": {"inp": _b64_file(out_inp), "md": _b64_file(out_md)},
+                "prv": prv,
+                "filesV1": {"inp": _b64_file(out_inp_v1), "md": _b64_file(out_md_v1)},
+                "filesFinal": (
+                    {"inp": _b64_file(out_inp_final), "md": _b64_file(out_md_final)}
+                    if out_inp_final and out_md_final
+                    else None
+                ),
+                # Backward-compatible: "files" points to the most relevant output for this action
+                "files": (
+                    {"inp": _b64_file(out_inp_final), "md": _b64_file(out_md_final)}
+                    if action == "fix_pressure" and out_inp_final and out_md_final
+                    else {"inp": _b64_file(out_inp_v1), "md": _b64_file(out_md_v1)}
+                ),
             }
 
             self._respond(200, response)
 
-        except UserError as e:
+        except (UserError, InpValidationError) as e:
             self._respond(422, {"success": False, "refund": False, "error": str(e)})
         except Exception:
             traceback.print_exc()
             self._respond(500, {"success": False, "refund": True, "error": "System error"})
         finally:
-            for p in (inp_path, out_inp, out_md):
+            for p in (inp_path, out_inp_v1, out_md_v1, out_inp_final, out_md_final):
                 if not p:
                     continue
                 try:

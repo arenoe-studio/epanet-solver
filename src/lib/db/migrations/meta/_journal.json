@@ -15,6 +15,13 @@
       "when": 1776405882547,
       "tag": "0001_dashing_paibok",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776455801192,
+      "tag": "0002_add_analysis_kind_parent",
+      "breakpoints": true
     }
   ]
 }

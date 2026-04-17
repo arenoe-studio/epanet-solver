@@ -24,6 +24,8 @@ type AnalysisHistoryModalProps = {
 type AnalysisRow = {
   id: number;
   fileName: string | null;
+  kind: string | null;
+  parentAnalysisId: number | null;
   status: string | null;
   issuesFound: number | null;
   issuesFixed: number | null;
@@ -63,6 +65,7 @@ export function AnalysisHistoryModal({
               <TableRow>
                 <TableHead>File</TableHead>
                 <TableHead>Tanggal</TableHead>
+                <TableHead>Jenis</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Issues</TableHead>
               </TableRow>
@@ -70,11 +73,11 @@ export function AnalysisHistoryModal({
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4}>Loading…</TableCell>
+                  <TableCell colSpan={5}>Loading…</TableCell>
                 </TableRow>
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4}>Belum ada data.</TableCell>
+                  <TableCell colSpan={5}>Belum ada data.</TableCell>
                 </TableRow>
               ) : (
                 items.map((r) => (
@@ -86,6 +89,13 @@ export function AnalysisHistoryModal({
                       {r.createdAt
                         ? new Date(r.createdAt).toISOString().slice(0, 10)
                         : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {r.kind === "fix_pressure"
+                        ? r.parentAnalysisId
+                          ? `Final/PRV (#${r.parentAnalysisId})`
+                          : "Final/PRV"
+                        : "V1"}
                     </TableCell>
                     <TableCell>{r.status ?? "—"}</TableCell>
                     <TableCell>

@@ -14,6 +14,93 @@ from .config import SEARCH_PATHS
 # LOAD & SANITASI
 # ===========================================================================
 
+class InpValidationError(Exception):
+    """File .inp tidak sesuai format/standar yang didukung sistem."""
+
+
+def _iter_section_rows(lines: list[str], section: str) -> list[str]:
+    """Ambil baris data (bukan komentar) dalam sebuah section."""
+    wanted = section.upper()
+    in_section = False
+    rows: list[str] = []
+    for line in lines:
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("[") and s.endswith("]"):
+            in_section = s.upper() == wanted
+            continue
+        if not in_section:
+            continue
+        if s.startswith(";"):
+            continue
+        rows.append(s)
+    return rows
+
+
+def validate_inp_file(inp_path: Path) -> None:
+    """
+    Validasi minimal sesuai EPANET_Solver_Logic_Documentation.md:
+      - Section wajib ada: [JUNCTIONS], [RESERVOIRS], [PIPES], [OPTIONS]
+      - Minimal 1 reservoir dan 1 junction
+      - Minimal 1 pipa yang menghubungkan reservoir ke jaringan
+      - OPTIONS: Units=LPS dan Headloss=H-W
+    """
+    text = inp_path.read_text(encoding="utf-8", errors="replace")
+    lines = text.splitlines()
+
+    required = ["[JUNCTIONS]", "[RESERVOIRS]", "[PIPES]", "[OPTIONS]"]
+    found_sections = {line.strip().upper() for line in lines if line.strip().startswith("[")}
+    missing = [s for s in required if s not in found_sections]
+    if missing:
+        raise InpValidationError(f"Missing section(s): {', '.join(missing)}")
+
+    junction_rows = _iter_section_rows(lines, "[JUNCTIONS]")
+    reservoir_rows = _iter_section_rows(lines, "[RESERVOIRS]")
+    pipe_rows = _iter_section_rows(lines, "[PIPES]")
+    option_rows = _iter_section_rows(lines, "[OPTIONS]")
+
+    if not junction_rows:
+        raise InpValidationError("Invalid .inp: [JUNCTIONS] kosong.")
+    if not reservoir_rows:
+        raise InpValidationError("Invalid .inp: [RESERVOIRS] kosong.")
+    if not pipe_rows:
+        raise InpValidationError("Invalid .inp: [PIPES] kosong.")
+
+    units = None
+    headloss = None
+    for row in option_rows:
+        parts = row.split()
+        if len(parts) < 2:
+            continue
+        key = parts[0].upper()
+        val = parts[1].upper()
+        if key == "UNITS":
+            units = val
+        elif key == "HEADLOSS":
+            headloss = val
+
+    if units != "LPS":
+        raise InpValidationError("Invalid .inp: UNITS harus LPS.")
+    if headloss not in ("H-W", "HW", "HAZEN-WILLIAMS"):
+        raise InpValidationError("Invalid .inp: HEADLOSS harus H-W (Hazen-Williams).")
+
+    reservoir_ids = {r.split()[0] for r in reservoir_rows if r.split()}
+    ok_connection = False
+    for row in pipe_rows:
+        parts = row.split()
+        if len(parts) < 3:
+            continue
+        n1, n2 = parts[1], parts[2]
+        if (n1 in reservoir_ids) ^ (n2 in reservoir_ids):
+            ok_connection = True
+            break
+    if not ok_connection:
+        raise InpValidationError(
+            "Invalid .inp: tidak ada pipa yang menghubungkan reservoir ke jaringan."
+        )
+
+
 def sanitize_inp_vertices(inp_path: Path) -> str:
     """
     Bersihkan section [VERTICES] dari referensi pipa yang tidak terdaftar
@@ -70,6 +157,7 @@ def load_network(inp_path: Path) -> wntr.network.WaterNetworkModel:
     Muat WaterNetworkModel dari file .inp.
     Jika gagal (misal vertices korup), sanitasi dulu lalu coba lagi.
     """
+    validate_inp_file(inp_path)
     try:
         return wntr.network.WaterNetworkModel(str(inp_path))
     except Exception:
@@ -143,10 +231,11 @@ def export_optimized_inp(
             in_pipes = False
         if in_pipes and line.strip() and not line.strip().startswith(";"):
             parts = line.split()
-            if len(parts) >= 5:
+            if len(parts) >= 6:
                 try:
                     pipe = wn_optimized.get_link(parts[0])
                     parts[4] = f"{pipe.diameter * 1000.0:.4f}"
+                    parts[5] = f"{float(getattr(pipe, 'roughness', parts[5])):.4f}"
                     new_lines.append("  ".join(parts))
                     continue
                 except Exception:

@@ -1,136 +1,198 @@
 """
-optimizer.py — Optimasi diameter pipa dengan Analytical Window Method
+optimizer.py - Modul 2: Iterasi diameter otomatis (fokus Velocity & Headloss).
 
-Strategi per pipa:
-  • V-LOW / HL-HIGH / HL-SMALL → analytical_optimal_diameter(flow)
-      FEASIBLE  : diameter optimal yang memenuhi V dan HL sekaligus
-      INFEASIBLE: flow terlalu kecil; pakai D_min, tandai untuk solusi operasional
-      CONFLICT  : tidak ada D yang memenuhi keduanya; prioritaskan HL
-  • P-HIGH  → skip (ditangani PRV, bukan diameter)
-  • P-LOW   → naikkan diameter pipa upstream
+Implements the priority passes described in EPANET_Solver_Logic_Documentation.md:
+  HL-SMALL -> HL-HIGH -> V-HIGH -> V-LOW
 
-Loop berhenti bila CONVERGED, STUCK, atau STAGNANT.
+Stopping criteria for Modul 2:
+  - all V/HL flags OK (pressure is handled by Modul 3 / PRV).
+  - or max iterations reached / no changes / stagnant / time budget exceeded.
 """
 
+from __future__ import annotations
+
 import copy
+import time
+
 import wntr
 
-from .config import MAX_ITERATIONS, PRESSURE_MIN
-from .diameter import analytical_optimal_diameter, next_diameter_up, d_max_for_vmin
-from .simulation import run_simulation, evaluate_network
+from .config import HL_MAX, HW_C_DEFAULT, MAX_ITERATIONS, VELOCITY_MAX
+from .diameter import (
+    ceil_standard_diameter,
+    d_min_for_headloss,
+    d_min_for_vmax,
+    next_diameter_down,
+)
+from .materials import recommend_material
+from .simulation import evaluate_network, run_simulation
+
+
+def _pipe_working_pressure_m(
+    wn: wntr.network.WaterNetworkModel,
+    head_series,
+) -> dict[str, float]:
+    head = head_series.to_dict() if hasattr(head_series, "to_dict") else dict(head_series)
+    out: dict[str, float] = {}
+    for pid in wn.pipe_name_list:
+        pipe = wn.get_link(pid)
+        n1, n2 = pipe.start_node_name, pipe.end_node_name
+        h1 = float(head.get(n1, 0.0))
+        h2 = float(head.get(n2, 0.0))
+        e1 = float(getattr(wn.get_node(n1), "elevation", 0.0))
+        e2 = float(getattr(wn.get_node(n2), "elevation", 0.0))
+        out[pid] = ((h1 + h2) / 2.0) - ((e1 + e2) / 2.0)
+    return out
+
+
+def _apply_material_roughness(
+    wn: wntr.network.WaterNetworkModel,
+    sim_results: dict,
+) -> dict[str, dict]:
+    """
+    Recommend material per pipe and set Hazen-Williams C (roughness) accordingly.
+    Returns {pipe_id: {material, C, notes, pressureWorkingM, diameterMm}}.
+    """
+    head = sim_results.get("head")
+    if head is None:
+        return {}
+
+    p_work = _pipe_working_pressure_m(wn, head)
+    materials: dict[str, dict] = {}
+    for pid in wn.pipe_name_list:
+        pipe = wn.get_link(pid)
+        d_mm = float(pipe.diameter) * 1000.0
+        rec = recommend_material(float(p_work.get(pid, 0.0)), d_mm)
+        pipe.roughness = float(rec["C"])
+        materials[pid] = {
+            "material": rec["material"],
+            "C": float(rec["C"]),
+            "notes": rec.get("notes", []),
+            "pressureWorkingM": float(p_work.get(pid, 0.0)),
+            "diameterMm": d_mm,
+        }
+    return materials
 
 
 def optimize_diameters(
     wn_orig: wntr.network.WaterNetworkModel,
     max_iterations: int | None = None,
+    time_budget_s: float | None = None,
 ) -> tuple[wntr.network.WaterNetworkModel, dict, dict, list]:
     """
-    Optimasi diameter pipa secara analitis + validasi simulasi.
-
     Returns:
-      wn_optimized    — model jaringan dengan diameter baru
-      final_eval      — hasil evaluate_network setelah optimasi
-      diameter_changes — {pipe_id: {before, after, reason, category}}
-      snapshots       — list per iterasi {iter, status, changes,
-                        sim_before, eval_before, sim_after, eval_after}
+      wn_optimized      - model jaringan dengan diameter + roughness baru
+      final_eval        - evaluate_network setelah Modul 2 (V/HL) + roughness update final
+      diameter_changes  - {pipe_id: {before, after, reason, category}}
+      snapshots         - list per iterasi {iter, status, pass, changes, eval_before, eval_after}
     """
-    wn               = copy.deepcopy(wn_orig)
+    wn = copy.deepcopy(wn_orig)
     diameter_changes: dict = {}
-    snapshots:        list = []
-    prev_problem_pipes: set = set()
+    snapshots: list = []
 
-    limit = max_iterations if max_iterations is not None else MAX_ITERATIONS
+    limit = int(max_iterations if max_iterations is not None else MAX_ITERATIONS)
+    started = time.time()
+
+    prev_problem_pipes: set[str] = set()
 
     for iteration in range(1, limit + 1):
-        sim_before  = run_simulation(wn)
+        if time_budget_s is not None and (time.time() - started) > float(time_budget_s):
+            break
+
+        sim_before = run_simulation(wn)
         eval_before = evaluate_network(wn, sim_before)
 
-        # Selesai — semua kriteria terpenuhi
-        if eval_before["all_ok"]:
-            snapshots.append({
-                "iter": iteration, "status": "CONVERGED", "changes": [],
-                "sim_before": sim_before, "eval_before": eval_before,
-                "sim_after":  sim_before, "eval_after":  eval_before,
-            })
-            return wn, eval_before, diameter_changes, snapshots
-
-        changes_this_iter:    list = []
-        current_problem_pipes: set = set()
-
-        # --- Pipa: Analytical Window Method ----------------------------------
-        for pipe_id, info in eval_before["pipe_status"].items():
-            if info["ok"]:
-                continue
-
-            current_problem_pipes.add(pipe_id)
-            pipe  = wn.get_link(pipe_id)
-            d_old = pipe.diameter
-            flow  = info["flow"]
-
-            d_optimal, category = analytical_optimal_diameter(flow)
-
-            composite = info["composite"]
-            if category == "INFEASIBLE":
-                reason = (
-                    f"INFEASIBLE — flow {abs(flow)*1000:.3f} L/s terlalu kecil "
-                    f"(D_max_V={d_max_for_vmin(flow)*1000:.1f} mm < 40 mm)"
-                )
-            elif category == "CONFLICT":
-                reason = (
-                    f"CONFLICT — V & HL bertentangan, prioritas HL "
-                    f"→ {d_optimal*1000:.0f} mm, V-LOW diterima"
-                )
-            else:
-                reason = f"{composite} → OPTIMAL {d_optimal*1000:.0f} mm"
-
-            if abs(d_optimal - d_old) < 1e-6:
-                continue
-
-            pipe.diameter = d_optimal
-            diameter_changes[pipe_id] = {
-                "before":   diameter_changes.get(pipe_id, {}).get("before", d_old),
-                "after":    d_optimal,
-                "reason":   reason,
-                "category": category,
-            }
-            changes_this_iter.append({
-                "pipe":     pipe_id,
-                "d_before": d_old,
-                "d_after":  d_optimal,
-                "reason":   reason,
-                "category": category,
-            })
-
-        # --- Node P-LOW: naikkan diameter pipa upstream ----------------------
-        for nid, ninfo in eval_before["node_status"].items():
-            if ninfo["ok"] or ninfo["pressure"] >= PRESSURE_MIN:
-                continue
-            for pipe_id in wn.pipe_name_list:
-                pipe = wn.get_link(pipe_id)
-                if pipe.end_node_name != nid:
-                    continue
-                d_old = pipe.diameter
-                d_new = next_diameter_up(d_old)
-                if abs(d_new - d_old) < 1e-6:
-                    continue
-                pipe.diameter = d_new
-                reason = f"P-LOW upstream → {nid}"
-                diameter_changes[pipe_id] = {
-                    "before":   diameter_changes.get(pipe_id, {}).get("before", d_old),
-                    "after":    d_new,
-                    "reason":   reason,
-                    "category": "P-LOW",
+        if eval_before.get("all_vhl_ok", False):
+            snapshots.append(
+                {
+                    "iter": iteration,
+                    "status": "CONVERGED",
+                    "pass": None,
+                    "changes": [],
+                    "sim_before": sim_before,
+                    "eval_before": eval_before,
+                    "sim_after": sim_before,
+                    "eval_after": eval_before,
                 }
-                changes_this_iter.append({
-                    "pipe": pipe_id, "d_before": d_old, "d_after": d_new,
-                    "reason": reason, "category": "P-LOW",
-                })
+            )
+            break
 
-        # --- Evaluasi setelah perubahan --------------------------------------
-        sim_after  = run_simulation(wn)
+        # Decide which pass to run this iteration
+        pass_order = ["HL-SMALL", "HL-HIGH", "V-HIGH", "V-LOW"]
+        pass_to_run = None
+        for p in pass_order:
+            if any(info.get("composite") == p for info in eval_before["pipe_status"].values()):
+                pass_to_run = p
+                break
+        if pass_to_run is None:
+            pass_to_run = "V-LOW" if any("V-LOW" in " ".join(info.get("flags", [])) for info in eval_before["pipe_status"].values()) else None
+
+        changes_this_iter: list = []
+        current_problem_pipes: set[str] = set()
+
+        # Compute materials based on current sim (for C when calculating D_min_HL).
+        # If head is missing, fallback to default C.
+        head = sim_before.get("head")
+        p_work = _pipe_working_pressure_m(wn, head) if head is not None else {}
+
+        for pid, info in eval_before["pipe_status"].items():
+            if info.get("ok", False):
+                continue
+            if pass_to_run and info.get("composite") != pass_to_run:
+                continue
+
+            current_problem_pipes.add(pid)
+            pipe = wn.get_link(pid)
+            d_old = float(pipe.diameter)
+            flow = float(info.get("flow", 0.0))
+
+            # choose C from material recommendation (doc: roughness aligned with material)
+            d_mm_now = d_old * 1000.0
+            rec_mat = recommend_material(float(p_work.get(pid, 0.0)), d_mm_now)
+            C = float(rec_mat.get("C", HW_C_DEFAULT))
+
+            if pass_to_run == "V-LOW":
+                d_target = next_diameter_down(d_old)
+                reason = "V-LOW -> diameter turun (cari V >= 0.3 m/s)"
+            else:
+                d_v = d_min_for_vmax(flow, v_max=VELOCITY_MAX)
+                d_hl = d_min_for_headloss(flow, hl_target_per_km=HL_MAX, C=C)
+                if pass_to_run == "HL-HIGH":
+                    d_calc = d_hl
+                elif pass_to_run == "V-HIGH":
+                    d_calc = d_v
+                else:  # HL-SMALL
+                    d_calc = max(d_v, d_hl)
+
+                d_target = ceil_standard_diameter(d_calc)
+                reason = f"{pass_to_run} -> D_rec {d_target*1000:.0f} mm"
+
+            if abs(d_target - d_old) < 1e-12:
+                continue
+
+            pipe.diameter = float(d_target)
+            diameter_changes[pid] = {
+                "before": diameter_changes.get(pid, {}).get("before", d_old),
+                "after": float(d_target),
+                "reason": reason,
+                "category": pass_to_run,
+            }
+            changes_this_iter.append(
+                {
+                    "pipe": pid,
+                    "d_before": d_old,
+                    "d_after": float(d_target),
+                    "reason": reason,
+                    "category": pass_to_run,
+                }
+            )
+
+        # Apply roughness after diameter edits (best-effort)
+        _apply_material_roughness(wn, sim_before)
+
+        sim_after = run_simulation(wn)
         eval_after = evaluate_network(wn, sim_after)
 
-        if eval_after["all_ok"]:
+        if eval_after.get("all_vhl_ok", False):
             status = "CONVERGED"
         elif not changes_this_iter:
             status = "STUCK"
@@ -139,16 +201,29 @@ def optimize_diameters(
         else:
             status = "RUNNING"
 
-        snapshots.append({
-            "iter": iteration, "status": status, "changes": changes_this_iter,
-            "sim_before": sim_before, "eval_before": eval_before,
-            "sim_after":  sim_after,  "eval_after":  eval_after,
-        })
+        snapshots.append(
+            {
+                "iter": iteration,
+                "status": status,
+                "pass": pass_to_run,
+                "changes": changes_this_iter,
+                "sim_before": sim_before,
+                "eval_before": eval_before,
+                "sim_after": sim_after,
+                "eval_after": eval_after,
+            }
+        )
 
         if status in ("CONVERGED", "STUCK", "STAGNANT"):
             break
 
         prev_problem_pipes = current_problem_pipes
 
-    final_eval = snapshots[-1]["eval_after"]
+    # Final pass: ensure roughness is aligned with final diameters before returning eval
+    sim_final = run_simulation(wn)
+    _apply_material_roughness(wn, sim_final)
+    sim_final2 = run_simulation(wn)
+    final_eval = evaluate_network(wn, sim_final2)
+
     return wn, final_eval, diameter_changes, snapshots
+

@@ -14,6 +14,7 @@ export type User = {
 };
 
 export type AnalysisResult = {
+  analysisId: number;
   fileName: string;
   summary: {
     iterations: number;
@@ -24,8 +25,30 @@ export type AnalysisResult = {
     nodes: number;
     pipes: number;
   };
+  prv?: {
+    needed: boolean;
+    tokenCost?: number;
+    recommendations?: Array<{
+      pipeId: string;
+      upstreamNode: string;
+      downstreamNode: string;
+      settingHeadM: number;
+      pressureTargetM: number;
+      elevationMaxM: number;
+      coveredNodes: string[];
+      estimatedPressuresM: Record<string, number>;
+    }>;
+  };
   files: {
     inp: string;
     md: string;
   };
+  filesV1?: {
+    inp: string;
+    md: string;
+  };
+  filesFinal?: {
+    inp: string;
+    md: string;
+  } | null;
 };

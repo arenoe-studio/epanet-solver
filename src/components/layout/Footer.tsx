@@ -18,6 +18,9 @@ export function Footer() {
           <Link className="transition-colors hover:text-expo-black" href="/refund-policy">
             Refund Policy
           </Link>
+          <Link className="transition-colors hover:text-expo-black" href="/docs">
+            Dokumentasi Teknis
+          </Link>
           <Link className="transition-colors hover:text-expo-black" href="/contact">
             Kontak
           </Link>

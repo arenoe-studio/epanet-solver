@@ -45,10 +45,12 @@ if _MISSING:
 # ---------------------------------------------------------------------------
 from epanet.config import OUTPUT_FOLDER_NAME, MAX_ITERATIONS
 from epanet.network_io import find_inp_file, load_network, export_optimized_inp
-from epanet.diameter import nearest_standard_diameter
+from epanet.diameter import ceil_standard_diameter
 from epanet.simulation import run_simulation, evaluate_network
 from epanet.optimizer import optimize_diameters
 from epanet.reporter import export_markdown_report
+from epanet.materials import material_recommendations_for_network
+from epanet.prv import analyze_prv_recommendations
 
 
 # ===========================================================================
@@ -97,7 +99,7 @@ def main() -> None:
 
     for pid in wn_orig.pipe_name_list:
         pipe = wn_orig.get_link(pid)
-        pipe.diameter = nearest_standard_diameter(pipe.diameter)
+        pipe.diameter = ceil_standard_diameter(float(pipe.diameter))
 
     print("[2/4] Menjalankan simulasi hidraulik awal ...")
     before_sim  = run_simulation(wn_orig)
@@ -122,16 +124,24 @@ def main() -> None:
 
     # --- Ekspor -------------------------------------------------------------
     print("[4/4] Mengekspor hasil ...")
-    export_optimized_inp(inp_path, wn_opt, output_dir / "optimized_network.inp")
+    sim_after = run_simulation(wn_opt)
+    after_eval = evaluate_network(wn_opt, sim_after)
+    materials = material_recommendations_for_network(wn_opt, sim_after)
+    prv = analyze_prv_recommendations(wn_opt, sim_after, after_eval)
+
+    export_optimized_inp(inp_path, wn_opt, output_dir / "optimized_network_v1.inp")
     export_markdown_report(
-        inp_path         = inp_path,
-        wn_orig          = wn_orig,
-        before_eval      = before_eval,
-        after_eval       = after_eval,
-        diameter_changes = diameter_changes,
-        snapshots        = snapshots,
-        output_path      = output_dir / "analysis_report.md",
-        optimize_ran     = not args.no_optimize,
+        inp_path=inp_path,
+        file_name=inp_path.name,
+        wn_orig=wn_orig,
+        baseline_eval=before_eval,
+        after_eval=after_eval,
+        diameter_changes=diameter_changes,
+        snapshots=snapshots,
+        materials=materials,
+        prv=prv,
+        output_path=output_dir / "analysis_report_v1.md",
+        report_kind="v1",
     )
 
     # --- Ringkasan ----------------------------------------------------------
@@ -144,8 +154,8 @@ def main() -> None:
         print(f"  Pelanggaran sesudah : {len(after_eval['violations'])}")
         print(f"  Diameter diubah     : {len(diameter_changes)} pipa")
     print(f"  File output         : {output_dir}/")
-    print(f"    • optimized_network.inp")
-    print(f"    • analysis_report.md")
+    print(f"    • optimized_network_v1.inp")
+    print(f"    • analysis_report_v1.md")
 
     if after_eval["violations"]:
         print()

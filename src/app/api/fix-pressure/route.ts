@@ -9,7 +9,7 @@ import { getDb } from "@/lib/db";
 import { analyses, tokenBalances } from "@/lib/db/schema";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
-import { ANALYSIS_TOKEN_COST } from "@/lib/token-constants";
+import { FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
 
 export const dynamic = "force-dynamic";
 
@@ -50,12 +50,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "File too large" }, { status: 400 });
   }
 
+  const parentAnalysisIdRaw = formData.get("parentAnalysisId");
+  const parentAnalysisId =
+    typeof parentAnalysisIdRaw === "string" && parentAnalysisIdRaw.trim()
+      ? Number(parentAnalysisIdRaw)
+      : null;
+
   const db = getDb();
 
   if (!bypassTokens) {
     const existingBalance = await ensureInitialTokenBalanceRow(db, userId);
     const balance = existingBalance.balance ?? 0;
-    if (balance < ANALYSIS_TOKEN_COST) {
+    if (balance < FIX_PRESSURE_TOKEN_COST) {
       return NextResponse.json({ error: "Insufficient tokens" }, { status: 402 });
     }
   }
@@ -65,9 +71,10 @@ export async function POST(req: Request) {
     .values({
       userId,
       fileName: file.name,
-      kind: "optimize",
+      kind: "fix_pressure",
+      parentAnalysisId: Number.isFinite(parentAnalysisId) ? parentAnalysisId : null,
       status: "processing",
-      tokensUsed: bypassTokens ? 0 : ANALYSIS_TOKEN_COST
+      tokensUsed: bypassTokens ? 0 : FIX_PRESSURE_TOKEN_COST
     })
     .returning({ id: analyses.id });
 
@@ -78,7 +85,7 @@ export async function POST(req: Request) {
 
   const pythonFormData = new FormData();
   pythonFormData.set("file", file);
-  pythonFormData.set("action", "analyze");
+  pythonFormData.set("action", "fix_pressure");
 
   let pythonJson: unknown = null;
   let pythonStatus = 500;
@@ -149,6 +156,7 @@ export async function POST(req: Request) {
 
   if (parsedSuccess.success) {
     const result = parsedSuccess.data;
+
     if (bypassTokens) {
       await db
         .update(analyses)
@@ -166,14 +174,14 @@ export async function POST(req: Request) {
         updated = await db
           .update(tokenBalances)
           .set({
-            balance: sql`${tokenBalances.balance} - ${ANALYSIS_TOKEN_COST}`,
-            totalUsed: sql`${tokenBalances.totalUsed} + ${ANALYSIS_TOKEN_COST}`,
+            balance: sql`${tokenBalances.balance} - ${FIX_PRESSURE_TOKEN_COST}`,
+            totalUsed: sql`${tokenBalances.totalUsed} + ${FIX_PRESSURE_TOKEN_COST}`,
             updatedAt: new Date()
           })
           .where(
             and(
               eq(tokenBalances.userId, userId),
-              gte(tokenBalances.balance, ANALYSIS_TOKEN_COST)
+              gte(tokenBalances.balance, FIX_PRESSURE_TOKEN_COST)
             )
           )
           .returning({ balance: tokenBalances.balance });
@@ -202,7 +210,7 @@ export async function POST(req: Request) {
           })
           .where(eq(analyses.id, analysisId));
       } catch {
-        // If persisting the analysis metadata fails, still return the analysis result.
+        // ignore persist errors
       }
     }
 

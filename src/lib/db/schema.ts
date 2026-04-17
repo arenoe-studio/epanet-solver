@@ -86,6 +86,8 @@ export const analyses = pgTable("analyses", {
   id: serial("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   fileName: text("file_name"),
+  kind: text("kind").notNull().default("optimize"), // optimize | fix_pressure
+  parentAnalysisId: integer("parent_analysis_id"),
   status: text("status"), // success | failed | processing
   nodesCount: integer("nodes_count"),
   pipesCount: integer("pipes_count"),
