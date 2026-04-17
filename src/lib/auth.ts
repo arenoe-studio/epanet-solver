@@ -51,13 +51,16 @@ export function getAuthOptions(): NextAuthOptions {
       strategy: "database"
     },
     callbacks: {
-      async session({ session }) {
+      async session({ session, user }) {
         const email = session.user?.email;
         const userIsAdmin = isAdminEmail(email);
         if (session.user) {
           session.user.isAdmin = userIsAdmin;
+          if (user?.id && !session.user.id) {
+            session.user.id = user.id;
+          }
         } else {
-          session.user = { isAdmin: userIsAdmin };
+          session.user = { isAdmin: userIsAdmin, id: user?.id };
         }
         return session;
       }
