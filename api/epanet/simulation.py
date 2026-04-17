@@ -30,7 +30,14 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     ke-2+ tidak dimulai dari akhir durasi simulasi (bug WNTR WNTRSimulator).
     """
     wn.sim_time = 0
-    results = wntr.sim.WNTRSimulator(wn).run_sim()
+    # PRV/valves are accurately supported by EPANET engine. WNTRSimulator can
+    # silently ignore or approximate some controls/valves, causing PRV installs
+    # to have no effect in results.
+    try:
+        results = wntr.sim.EpanetSimulator(wn).run_sim()
+    except Exception:
+        # Fallback to WNTRSimulator for environments without EPANET toolkit.
+        results = wntr.sim.WNTRSimulator(wn).run_sim()
 
     if results.node["pressure"].empty:
         raise RuntimeError(

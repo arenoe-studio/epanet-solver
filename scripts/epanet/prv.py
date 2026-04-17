@@ -131,7 +131,8 @@ def analyze_prv_recommendations(
             elev = float(wn.get_node(nid).elevation)
             elev_max = elev if elev_max is None else max(elev_max, elev)
         elev_max = float(elev_max or 0.0)
-        setting_head = PRV_PRESSURE_TARGET + elev_max
+        # EPANET PRV "Setting" is a downstream pressure setpoint (m), not head.
+        setting_head = float(PRV_PRESSURE_TARGET)
 
         chosen.append(
             PrvRecommendation(
@@ -149,13 +150,7 @@ def analyze_prv_recommendations(
     # Build UI-friendly JSON
     recs = []
     for rec in chosen:
-        est = {}
-        for nid in rec.covered_nodes:
-            try:
-                elev = float(wn.get_node(nid).elevation)
-            except Exception:
-                elev = 0.0
-            est[nid] = rec.setting_head_m - elev
+        est = {nid: rec.setting_head_m for nid in rec.covered_nodes}
         recs.append(
             {
                 "pipeId": rec.pipe_id,
@@ -180,6 +175,81 @@ def _midpoint_coords(wn: wntr.network.WaterNetworkModel, n1: str, n2: str) -> tu
     except Exception:
         return 0.0, 0.0
 
+def _node_xy(wn: wntr.network.WaterNetworkModel, nid: str) -> tuple[float, float]:
+    try:
+        x, y = wn.get_node(nid).coordinates
+        return float(x), float(y)
+    except Exception:
+        return 0.0, 0.0
+
+def _polyline_len(points: list[tuple[float, float]]) -> float:
+    total = 0.0
+    for (x1, y1), (x2, y2) in zip(points, points[1:]):
+        dx = x2 - x1
+        dy = y2 - y1
+        total += (dx * dx + dy * dy) ** 0.5
+    return total
+
+def _split_polyline_at_fraction(
+    points: list[tuple[float, float]],
+    fraction: float,
+) -> tuple[tuple[float, float], list[tuple[float, float]], list[tuple[float, float]]]:
+    """
+    Split polyline (including endpoints) at a distance fraction [0..1].
+    Returns: split_point, upstream_vertices, downstream_vertices
+    (vertices lists exclude endpoints for their respective links).
+    """
+    if len(points) < 2:
+        split = points[0] if points else (0.0, 0.0)
+        return split, [], []
+
+    f = float(fraction)
+    if f <= 0.0:
+        f = 0.5
+    if f >= 1.0:
+        f = 0.5
+
+    total = _polyline_len(points)
+    if total <= 1e-9:
+        split = ((points[0][0] + points[-1][0]) / 2.0, (points[0][1] + points[-1][1]) / 2.0)
+        return split, [], []
+
+    target = total * f
+    walked = 0.0
+
+    for i, (p1, p2) in enumerate(zip(points, points[1:])):
+        x1, y1 = p1
+        x2, y2 = p2
+        dx = x2 - x1
+        dy = y2 - y1
+        seg = (dx * dx + dy * dy) ** 0.5
+        if seg <= 1e-12:
+            continue
+        if walked + seg + 1e-9 < target:
+            walked += seg
+            continue
+
+        t = (target - walked) / seg
+        if t <= 1e-8:
+            split = points[i]
+            up_pts = points[: i + 1]
+            dn_pts = points[i:]
+        elif t >= 1.0 - 1e-8:
+            split = points[i + 1]
+            up_pts = points[: i + 2]
+            dn_pts = points[i + 1 :]
+        else:
+            split = (x1 + t * dx, y1 + t * dy)
+            up_pts = points[: i + 1] + [split]
+            dn_pts = [split] + points[i + 1 :]
+
+        up_vertices = up_pts[1:-1] if len(up_pts) >= 3 else []
+        dn_vertices = dn_pts[1:-1] if len(dn_pts) >= 3 else []
+        return split, up_vertices, dn_vertices
+
+    split = points[-1]
+    return split, points[1:-1], []
+
 
 def apply_prvs(
     wn: wntr.network.WaterNetworkModel,
@@ -197,9 +267,36 @@ def apply_prvs(
         pipe = wn.get_link(pipe_id)
         n1, n2 = pipe.start_node_name, pipe.end_node_name
 
-        # Keep existing direction (physical), PRV is inserted on downstream side
-        x_mid, y_mid = _midpoint_coords(wn, n1, n2)
-        elev_mid = (float(getattr(wn.get_node(n1), "elevation", 0.0)) + float(getattr(wn.get_node(n2), "elevation", 0.0))) / 2.0
+        # Respect flow-based orientation from recommendations so PRV acts in the
+        # correct upstream->downstream direction (EPANET PRV is directional).
+        rec_up = rec.get("upstreamNode")
+        rec_dn = rec.get("downstreamNode")
+        if (
+            isinstance(rec_up, str)
+            and isinstance(rec_dn, str)
+            and rec_up in (n1, n2)
+            and rec_dn in (n1, n2)
+            and rec_up != rec_dn
+        ):
+            up_node, dn_node = rec_up, rec_dn
+            reversed_dir = up_node != n1
+        else:
+            up_node, dn_node = n1, n2
+            reversed_dir = False
+
+        raw_vertices = list(getattr(pipe, "vertices", []) or [])
+        vertices = [(float(x), float(y)) for x, y in raw_vertices]
+        if reversed_dir:
+            vertices = list(reversed(vertices))
+
+        points = [_node_xy(wn, up_node)] + vertices + [_node_xy(wn, dn_node)]
+        (x_mid, y_mid), up_vertices, dn_vertices = _split_polyline_at_fraction(points, 0.5)
+
+        elev_dn = float(getattr(wn.get_node(dn_node), "elevation", 0.0))
+        # Use downstream-node elevation so the PRV pressure setpoint is
+        # referenced to the downstream ground level (avoids inflated downstream
+        # pressures when the midpoint elevation is high).
+        elev_mid = elev_dn
 
         j_up = f"J_PRV_{pipe_id}"
         j_dn = f"J_PRV_{pipe_id}_D"
@@ -218,7 +315,7 @@ def apply_prvs(
                 v_id += suffix
                 break
 
-        # Remove original pipe
+        # Remove original pipe (after copying vertices for geometry preservation)
         wn.remove_link(pipe_id)
 
         # Add junctions (no demand)
@@ -230,15 +327,22 @@ def apply_prvs(
         L1 = L / 2.0
         L2 = L - L1
 
+        roughness = float(getattr(pipe, "roughness", 140.0))
+        minor_loss = float(getattr(pipe, "minor_loss", 0.0))
+
         wn.add_pipe(
             p_up,
-            n1,
+            up_node,
             j_up,
             length=L1,
             diameter=float(pipe.diameter),
-            roughness=float(getattr(pipe, "roughness", 140.0)),
-            minor_loss=float(getattr(pipe, "minor_loss", 0.0)),
+            roughness=roughness,
+            minor_loss=minor_loss,
         )
+        try:
+            wn.get_link(p_up).vertices = up_vertices
+        except Exception:
+            pass
         wn.add_valve(
             v_id,
             j_up,
@@ -250,12 +354,16 @@ def apply_prvs(
         wn.add_pipe(
             p_dn,
             j_dn,
-            n2,
+            dn_node,
             length=L2,
             diameter=float(pipe.diameter),
-            roughness=float(getattr(pipe, "roughness", 140.0)),
-            minor_loss=float(getattr(pipe, "minor_loss", 0.0)),
+            roughness=roughness,
+            minor_loss=minor_loss,
         )
+        try:
+            wn.get_link(p_dn).vertices = dn_vertices
+        except Exception:
+            pass
 
         log.append(
             {
@@ -286,8 +394,14 @@ def fine_tune_prvs(
         sim = run_simulation(wn)
         ev = evaluate_network(wn, sim)
 
-        max_p = max((float(v["pressure"]) for v in ev["node_status"].values()), default=0.0)
-        min_p = min((float(v["pressure"]) for v in ev["node_status"].values()), default=0.0)
+        # Ignore the synthetic PRV junctions; tune based on "real" nodes.
+        pressures = [
+            float(info["pressure"])
+            for nid, info in ev["node_status"].items()
+            if not str(nid).startswith("J_PRV_")
+        ]
+        max_p = max(pressures, default=0.0)
+        min_p = min(pressures, default=0.0)
 
         delta = 0.0
         if max_p > PRESSURE_MAX:
@@ -295,20 +409,23 @@ def fine_tune_prvs(
         elif min_p < PRESSURE_MIN:
             delta = (PRESSURE_MIN - min_p)
 
-        if abs(delta) < 1e-6:
+        # Avoid overshooting by applying a capped step each iteration.
+        step = max(-20.0, min(20.0, float(delta)))
+        if abs(step) < 1e-6:
             break
 
         for vid in prv_valve_ids:
             try:
                 valve = wn.get_link(vid)
-                new_setting = float(getattr(valve, "setting", 0.0)) + delta
-                if hasattr(valve, "setting"):
-                    valve.setting = new_setting
+                current = float(
+                    getattr(valve, "initial_setting", getattr(valve, "setting", 0.0)) or 0.0
+                )
+                new_setting = max(0.0, current + step)
                 if hasattr(valve, "initial_setting"):
                     valve.initial_setting = new_setting
             except Exception:
                 continue
 
-        tune_log.append({"iter": it, "deltaSettingM": delta, "minP": min_p, "maxP": max_p})
+        tune_log.append({"iter": it, "deltaSettingM": step, "minP": min_p, "maxP": max_p})
 
     return tune_log
