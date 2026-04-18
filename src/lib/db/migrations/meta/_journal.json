@@ -43,6 +43,13 @@
       "when": 1776488074718,
       "tag": "0005_puzzling_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1776492320064,
+      "tag": "0006_military_steel_serpent",
+      "breakpoints": true
     }
   ]
 }

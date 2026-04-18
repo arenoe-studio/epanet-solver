@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+
+import { auth } from "@/lib/auth-server";
+import { getDb } from "@/lib/db";
+import { contactMessages } from "@/lib/db/schema";
 import { getResendClient } from "@/lib/resend";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const schema = z.object({
   name: z.string().min(2).max(100),
@@ -27,6 +34,26 @@ export async function POST(req: Request) {
     process.env.NEXT_PUBLIC_BUSINESS_EMAIL ??
     process.env.AUTH_EMAIL_FROM_ADDRESS ??
     "support@epanet-solver.com";
+
+  try {
+    const session = await auth();
+    const userId = session?.user?.id ?? null;
+    const db = getDb();
+    await db.insert(contactMessages).values({
+      userId,
+      name,
+      email,
+      topic,
+      message,
+      status: "open"
+    });
+  } catch {
+    console.error("[contact] failed to save message");
+    return NextResponse.json(
+      { error: "Gagal menyimpan pesan. Coba lagi." },
+      { status: 500 }
+    );
+  }
 
   try {
     const resend = getResendClient();

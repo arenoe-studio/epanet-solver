@@ -160,3 +160,45 @@ export const transactions = pgTable(
     orderUnique: uniqueIndex("transactions_order_id_unique").on(table.orderId)
   })
 );
+
+export const contactMessages = pgTable(
+  "contact_messages",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    topic: text("topic").notNull(),
+    message: text("message").notNull(),
+    status: text("status").notNull().default("open"), // open | resolved | spam
+    adminNotes: text("admin_notes"),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
+  },
+  (table) => ({
+    createdAtIdx: index("contact_messages_created_at_idx").on(table.createdAt),
+    statusIdx: index("contact_messages_status_idx").on(table.status)
+  })
+);
+
+export const adminTokenEvents = pgTable(
+  "admin_token_events",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    adminEmail: text("admin_email").notNull(),
+    kind: text("kind").notNull(), // grant | refund | revoke | set
+    delta: integer("delta").notNull(),
+    balanceBefore: integer("balance_before").notNull(),
+    balanceAfter: integer("balance_after").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
+  },
+  (table) => ({
+    userCreatedIdx: index("admin_token_events_user_created_idx").on(
+      table.userId,
+      table.createdAt
+    )
+  })
+);

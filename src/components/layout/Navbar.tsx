@@ -24,8 +24,11 @@ export function Navbar() {
   const isLoggedIn = status === "authenticated";
   const user = session?.user ?? null;
   const isHomePage = pathname === "/";
+  const isAdminArea = pathname.startsWith("/admin");
 
   const { balance: tokenBalance } = useTokenBalance(isLoggedIn);
+
+  if (isAdminArea) return null;
 
   useEffect(() => {
     if (!isHomePage) {

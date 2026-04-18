@@ -1,5 +1,7 @@
 import { getServerEnv } from "@/lib/env";
 
+const MASTER_ADMIN_EMAIL = "arenoe.studio@gmail.com";
+
 function parseEmailList(raw: string | undefined) {
   if (!raw) return [];
   return raw
@@ -12,9 +14,7 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   const normalized = email?.trim().toLowerCase();
   if (!normalized) return false;
 
-  const env = getServerEnv();
-  const admins = parseEmailList(env.ADMIN_EMAILS);
-  return admins.includes(normalized);
+  return normalized === MASTER_ADMIN_EMAIL;
 }
 
 export function shouldBypassTokensForEmail(
@@ -30,4 +30,3 @@ export function shouldBypassTokensForEmail(
 
   return bypass;
 }
-
