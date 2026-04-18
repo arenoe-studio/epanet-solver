@@ -156,7 +156,6 @@ export default function UploadPage() {
     setErrorMessage(null);
     setIsLoadingHistory(true);
     setViewingHistoryId(analysisId);
-    setState("processing");
 
     try {
       const res = await fetch(`/api/analyses/${analysisId}`);
@@ -352,13 +351,11 @@ export default function UploadPage() {
 
       {state === "processing" ? (
         <ProcessingState
-          isDone={!isAnalyzing && !isFixingPressure && !isLoadingHistory}
+          isDone={!isAnalyzing && !isFixingPressure}
           isError={false}
           onCancel={() => {
             setIsAnalyzing(false);
             setIsFixingPressure(false);
-            setIsLoadingHistory(false);
-            setViewingHistoryId(null);
             setState(selectedFile ? "file-selected" : "upload");
           }}
         />
