@@ -10,6 +10,10 @@ function getResend() {
   return cached;
 }
 
+export function getResendClient() {
+  return getResend();
+}
+
 export async function sendPaymentConfirmationEmail(opts: {
   to: string;
   tokens: number;

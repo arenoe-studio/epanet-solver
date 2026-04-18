@@ -40,8 +40,9 @@ export function TokenPackageCard({
         selected && "ring-2 ring-link-cobalt/20"
       )}
     >
-      {pkg.badge ? (
-        <div className="flex justify-center pt-3.5">
+      {/* Fixed-height badge slot — always rendered so all cards start at the same baseline */}
+      <div className="flex h-9 items-center justify-center">
+        {pkg.badge ? (
           <div
             className={cn(
               "rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em]",
@@ -50,10 +51,10 @@ export function TokenPackageCard({
           >
             {pkg.badge}
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      <div className={cn("flex flex-1 flex-col", compact ? "p-4" : "p-5", pkg.badge ? "pt-3" : "")}>
+      <div className={cn("flex flex-1 flex-col", compact ? "p-4" : "p-5", "pt-0")}>
         <div className="space-y-1">
           <div className="text-sm font-semibold tracking-[-0.02em] text-expo-black">
             {pkg.name}
