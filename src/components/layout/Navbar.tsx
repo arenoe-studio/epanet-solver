@@ -83,6 +83,7 @@ export function Navbar() {
   const navItems = useMemo(() => {
     if (isLoggedIn) {
       return [
+        { href: "/", label: "Beranda", external: false },
         { href: "/upload", label: "Upload", external: false },
         { href: "/checkout", label: "Checkout", external: false },
         { href: "/contact", label: "Kontak", external: false },
@@ -103,7 +104,7 @@ export function Navbar() {
           : "border-transparent bg-transparent backdrop-blur-sm"
       }`}
     >
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+      <div className="mx-auto grid h-14 max-w-6xl grid-cols-3 items-center px-6">
         <Link
           href="/"
           aria-label="Kembali ke beranda"
@@ -127,7 +128,7 @@ export function Navbar() {
           EPANET Solver
         </Link>
 
-        <nav aria-label="Navigasi utama" className="hidden items-center gap-1 md:flex">
+        <nav aria-label="Navigasi utama" className="hidden items-center justify-center gap-1 md:flex">
           {navItems.map((item) => {
             const isActive =
               !item.external &&
@@ -150,6 +151,7 @@ export function Navbar() {
           })}
         </nav>
 
+        <div className="flex items-center justify-end">
         {!isLoggedIn ? (
           <Link
             href="/login?callbackUrl=%2Fupload"
@@ -240,6 +242,7 @@ export function Navbar() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       <BuyTokenModal open={buyOpen} onOpenChange={setBuyOpen} />

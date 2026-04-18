@@ -4,7 +4,7 @@ export function Footer() {
   return (
     <footer className="border-t border-border-lavender bg-white">
       <div className="mx-auto max-w-6xl px-6 py-12">
-        <div className="grid gap-8 md:grid-cols-[2fr_1fr_1fr]">
+        <div className="grid gap-8 md:grid-cols-3">
           <div>
             <div className="text-sm font-bold tracking-[-0.025em] text-expo-black">
               EPANET Solver
@@ -73,7 +73,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col gap-1 border-t border-border-lavender pt-6 text-left">
+        <div className="mt-10 flex flex-col gap-1 border-t border-border-lavender pt-6">
           <span className="text-xs text-slate-gray">
             © {new Date().getFullYear()} EPANET Solver
           </span>

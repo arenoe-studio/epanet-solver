@@ -33,7 +33,7 @@ export function TokenPackageCard({
   return (
     <Card
       className={cn(
-        "relative flex h-full flex-col overflow-hidden p-0 transition-all",
+        "relative flex h-full flex-col p-0 transition-all",
         pkg.featured
           ? "border-expo-black shadow-elevated md:-translate-y-2"
           : "border-border-lavender",
@@ -41,10 +41,10 @@ export function TokenPackageCard({
       )}
     >
       {pkg.badge ? (
-        <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2">
+        <div className="flex justify-center pt-3.5">
           <div
             className={cn(
-              "rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.06em]",
+              "rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em]",
               badgeToneClasses[pkg.badgeTone ?? "muted"]
             )}
           >
@@ -53,18 +53,18 @@ export function TokenPackageCard({
         </div>
       ) : null}
 
-      <div className={cn("flex flex-1 flex-col", compact ? "p-5" : "p-6")}>
-        <div className="space-y-1.5">
-          <div className="text-base font-semibold tracking-[-0.02em] text-expo-black">
+      <div className={cn("flex flex-1 flex-col", compact ? "p-4" : "p-5", pkg.badge ? "pt-3" : "")}>
+        <div className="space-y-1">
+          <div className="text-sm font-semibold tracking-[-0.02em] text-expo-black">
             {pkg.name}
           </div>
-          <div className="text-4xl font-bold tracking-[-0.05em] text-expo-black">
+          <div className="text-2xl font-bold tracking-[-0.04em] text-expo-black">
             {pkg.tokens}
-            <span className="ml-1 text-lg font-semibold tracking-[-0.02em] text-slate-gray">
+            <span className="ml-1 text-sm font-semibold tracking-[-0.01em] text-slate-gray">
               token
             </span>
           </div>
-          <div className="text-2xl font-semibold tracking-[-0.04em] text-expo-black">
+          <div className="text-lg font-semibold tracking-[-0.03em] text-expo-black">
             {formatIdr(pkg.amount)}
           </div>
           <div className="text-xs text-slate-gray">

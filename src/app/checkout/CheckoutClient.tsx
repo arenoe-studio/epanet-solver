@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useEffect, useMemo, useState } from "react";
@@ -48,22 +47,26 @@ function statusMeta(status: string | null) {
   switch (status) {
     case "paid":
       return {
-        label: "✅ Lunas",
+        label: "Lunas",
+        dot: "bg-green-500",
         className: "border-green-200 bg-green-50 text-green-700"
       };
     case "pending":
       return {
-        label: "⏳ Menunggu Pembayaran",
+        label: "Menunggu Pembayaran",
+        dot: "bg-amber-400",
         className: "border-amber-200 bg-amber-50 text-amber-700"
       };
     case "failed":
       return {
-        label: "❌ Gagal",
+        label: "Gagal",
+        dot: "bg-slate-400",
         className: "border-slate-200 bg-slate-100 text-slate-600"
       };
     default:
       return {
         label: "—",
+        dot: "",
         className: "border-border-lavender bg-white text-slate-gray"
       };
   }
@@ -253,51 +256,28 @@ export function CheckoutClient() {
       <section className="relative overflow-hidden rounded-[2rem] border border-border-lavender bg-white px-6 py-8 shadow-whisper md:px-8">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_top_left,rgba(0,112,243,0.08),transparent_40%),radial-gradient(circle_at_top_right,rgba(245,158,11,0.08),transparent_35%)]" />
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-2xl">
-            <div className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Beli Token
-            </div>
-            <h1 className="mt-2 text-4xl font-bold tracking-[-0.04em] text-expo-black md:text-5xl">
-              Pilih paket yang paling pas
-            </h1>
-            <p className="mt-3 text-sm leading-relaxed text-slate-gray md:text-base">
-              1 analisis = 5 token · Fix Pressure = 3 token · Token tidak pernah kedaluwarsa
-            </p>
+        <div className="max-w-2xl">
+          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
+            Beli Token
           </div>
-
-          <div className="rounded-2xl border border-border-lavender bg-cloud-gray/70 px-4 py-3 text-sm text-near-black">
-            <div className="text-xs uppercase tracking-[0.08em] text-slate-gray">
-              Saldo kamu saat ini
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {balanceLoading ? "..." : `${activeBalance} token`}
-            </div>
-            {!isAuthenticated ? (
-              <div className="mt-1 text-xs text-slate-gray">
-                Masuk untuk melihat saldo aktif.
-              </div>
-            ) : activeBalance === 0 ? (
-              <div className="mt-1 text-xs text-slate-gray">
-                belum ada token aktif
-              </div>
-            ) : null}
-          </div>
+          <h1 className="mt-1.5 text-2xl font-bold tracking-[-0.04em] text-expo-black md:text-3xl">
+            Pilih paket yang paling pas
+          </h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-gray">
+            1 analisis = 5 token · Fix Pressure = 3 token · Token tidak pernah kedaluwarsa
+          </p>
         </div>
       </section>
 
       <section className="space-y-5">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-gray">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
               Paket
             </div>
-            <h2 className="mt-1 text-2xl font-bold tracking-[-0.035em] text-expo-black">
+            <h2 className="mt-1 text-lg font-bold tracking-[-0.03em] text-expo-black">
               Pilih paket token
             </h2>
-          </div>
-          <div className="hidden text-sm text-slate-gray md:block">
-            Semua angka di bawah akurat dan siap dipakai.
           </div>
         </div>
 
@@ -320,19 +300,15 @@ export function CheckoutClient() {
           ))}
         </div>
 
-        <div className="text-center text-xs leading-relaxed text-slate-gray">
-          Semua analisis akurat 100% - token digunakan untuk akses ke output, bukan untuk
-          akurasi perhitungan.
-        </div>
       </section>
 
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <div className="text-sm font-semibold uppercase tracking-[0.08em] text-slate-gray">
+            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
               Riwayat Pembelian
             </div>
-            <h2 className="mt-1 text-2xl font-bold tracking-[-0.035em] text-expo-black">
+            <h2 className="mt-1 text-lg font-bold tracking-[-0.03em] text-expo-black">
               Transaksi terbaru
             </h2>
           </div>
@@ -353,12 +329,17 @@ export function CheckoutClient() {
           ) : transactionsLoading ? (
             <div className="p-6 text-sm text-slate-gray">Memuat riwayat pembelian...</div>
           ) : transactions.length === 0 ? (
-            <div className="space-y-3 p-6 text-sm text-slate-gray">
-              <div className="text-3xl">🧾</div>
-              <div className="text-base font-semibold text-expo-black">
+            <div className="flex flex-col gap-2 p-6">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-slate-gray" aria-hidden>
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+              <div className="text-sm font-semibold text-expo-black">
                 Belum ada riwayat pembelian.
               </div>
-              <div>
+              <div className="text-sm text-slate-gray">
                 {activeBalance > 0
                   ? "Token pertama kamu sudah ditambahkan saat login — coba analisis dulu!"
                   : "Riwayat transaksi akan muncul di sini setelah pembelian pertama."}
@@ -400,8 +381,9 @@ export function CheckoutClient() {
                         </td>
                         <td className="px-4 py-3">
                           <span
-                            className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.className}`}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.className}`}
                           >
+                            {meta.dot ? <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} aria-hidden /> : null}
                             {meta.label}
                           </span>
                         </td>
@@ -452,21 +434,6 @@ export function CheckoutClient() {
           ) : null}
         </Card>
       </section>
-
-      <section className="rounded-[1.75rem] border border-border-lavender bg-white px-6 py-5 text-center text-sm text-slate-gray shadow-whisper">
-        Semua analisis menggunakan solver EPANET yang sama dengan versi desktop. Hasil
-        selalu akurat - token digunakan untuk akses ke output, bukan untuk akurasi.
-      </section>
-
-      <div className="flex justify-center gap-3">
-        <Link href="/upload" className="text-sm font-semibold text-link-cobalt hover:underline">
-          Kembali ke Upload
-        </Link>
-        <span className="text-sm text-slate-gray">•</span>
-        <Link href="/contact" className="text-sm font-semibold text-link-cobalt hover:underline">
-          Kontak Bantuan
-        </Link>
-      </div>
 
       <InvoiceModal
         open={Boolean(invoiceTransaction)}

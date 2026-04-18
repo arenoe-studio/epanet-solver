@@ -32,33 +32,39 @@ function downloadBase64File(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function StatusDot({ color }: { color: string }) {
+  return <span className={`h-1.5 w-1.5 rounded-full ${color}`} aria-hidden />;
+}
+
 function NodeBadge({ code }: { code: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    "P-OK": { label: "✅ OK", cls: "bg-green-50 text-green-700 border-green-200" },
-    "P-LOW": { label: "⚠️ P-LOW", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-    "P-HIGH": { label: "⚠️ P-HIGH", cls: "bg-orange-50 text-orange-700 border-orange-200" },
-    "P-NEG": { label: "🔴 P-NEG", cls: "bg-red-50 text-red-700 border-red-200" }
+  const map: Record<string, { label: string; dot: string; cls: string }> = {
+    "P-OK":  { label: "OK",    dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
+    "P-LOW": { label: "P-LOW", dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    "P-HIGH":{ label: "P-HIGH",dot: "bg-orange-400", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+    "P-NEG": { label: "P-NEG", dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" }
   };
-  const { label, cls } = map[code] ?? { label: code, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  const entry = map[code] ?? { label: code, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
-      {label}
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
+      <StatusDot color={entry.dot} />
+      {entry.label}
     </span>
   );
 }
 
 function PipeBadge({ code }: { code: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    "OK": { label: "✅ OK", cls: "bg-green-50 text-green-700 border-green-200" },
-    "V-LOW": { label: "⚠️ V-LOW", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-    "V-HIGH": { label: "🔴 V-HIGH", cls: "bg-red-50 text-red-700 border-red-200" },
-    "HL-HIGH": { label: "🔴 HL-HIGH", cls: "bg-red-50 text-red-700 border-red-200" },
-    "HL-SMALL": { label: "🔴 Terlalu Kecil", cls: "bg-red-50 text-red-700 border-red-200" }
+  const map: Record<string, { label: string; dot: string; cls: string }> = {
+    "OK":      { label: "OK",          dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
+    "V-LOW":   { label: "V-LOW",       dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+    "V-HIGH":  { label: "V-HIGH",      dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" },
+    "HL-HIGH": { label: "HL-HIGH",     dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" },
+    "HL-SMALL":{ label: "Terlalu Kecil",dot: "bg-red-500",   cls: "bg-red-50 text-red-700 border-red-200" }
   };
-  const { label, cls } = map[code] ?? { label: code, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  const entry = map[code] ?? { label: code, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
-      {label}
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
+      <StatusDot color={entry.dot} />
+      {entry.label}
     </span>
   );
 }
@@ -180,32 +186,34 @@ export function ResultsPanel({
         {/* V / HL / P indicator chips */}
         <div className="mt-4 flex flex-wrap gap-2">
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
               vStatus === "ok"
                 ? "border-green-200 bg-green-50 text-green-700"
                 : "border-yellow-200 bg-yellow-50 text-yellow-700"
             }`}
           >
-            {vStatus === "ok" ? "✅" : "⚠️"} V Kecepatan {vStatus === "ok" ? "OK" : "Ada Masalah"}
+            <StatusDot color={vStatus === "ok" ? "bg-green-500" : "bg-yellow-400"} />
+            V Kecepatan {vStatus === "ok" ? "OK" : "Ada Masalah"}
           </span>
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
               hlStatus === "ok"
                 ? "border-green-200 bg-green-50 text-green-700"
                 : "border-yellow-200 bg-yellow-50 text-yellow-700"
             }`}
           >
-            {hlStatus === "ok" ? "✅" : "⚠️"} HL Headloss {hlStatus === "ok" ? "OK" : "Ada Masalah"}
+            <StatusDot color={hlStatus === "ok" ? "bg-green-500" : "bg-yellow-400"} />
+            HL Headloss {hlStatus === "ok" ? "OK" : "Ada Masalah"}
           </span>
           <span
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-semibold ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
               pStatus === "ok"
                 ? "border-green-200 bg-green-50 text-green-700"
                 : "border-orange-200 bg-orange-50 text-orange-700"
             }`}
           >
-            {pStatus === "ok" ? "✅" : "⚠️"} P Tekanan{" "}
-            {pStatus === "ok" ? "OK" : hasPHighNodes ? "Ada P-HIGH" : "Ada Masalah"}
+            <StatusDot color={pStatus === "ok" ? "bg-green-500" : "bg-orange-400"} />
+            P Tekanan {pStatus === "ok" ? "OK" : hasPHighNodes ? "Ada P-HIGH" : "Ada Masalah"}
           </span>
         </div>
       </div>
@@ -479,14 +487,14 @@ export function ResultsPanel({
               <TableBody>
                 {materials.map((m) => (
                   <TableRow key={m.pipeId}>
-                    <TableCell className="font-medium text-expo-black">{m.pipeId}</TableCell>
-                    <TableCell>{m.diameterMm.toFixed(1)} mm</TableCell>
-                    <TableCell>{m.material}</TableCell>
-                    <TableCell>{m.C}</TableCell>
-                    <TableCell>{m.pressureWorkingM.toFixed(2)} m</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap font-medium text-expo-black">{m.pipeId}</TableCell>
+                    <TableCell className="whitespace-nowrap">{m.diameterMm.toFixed(1)} mm</TableCell>
+                    <TableCell className="whitespace-nowrap">{m.material}</TableCell>
+                    <TableCell className="whitespace-nowrap">{m.C}</TableCell>
+                    <TableCell className="whitespace-nowrap">{m.pressureWorkingM.toFixed(2)} m</TableCell>
+                    <TableCell className="min-w-[180px]">
                       {m.notes.length > 0 ? (
-                        <span className="text-[11px] leading-snug text-orange-700">
+                        <span className="text-xs leading-snug text-orange-700">
                           {m.notes[0]}
                         </span>
                       ) : (
@@ -504,24 +512,44 @@ export function ResultsPanel({
             <button
               type="button"
               onClick={() => setMaterialAccordionOpen((v) => !v)}
-              className="flex w-full items-center justify-between px-5 py-3 text-xs font-semibold text-near-black hover:bg-cloud-gray transition"
+              className="flex w-full items-center justify-between px-5 py-3 text-sm font-semibold text-near-black hover:bg-cloud-gray transition"
             >
               <span>Dasar Pemilihan Material</span>
-              <span className="text-slate-gray">{materialAccordionOpen ? "▲" : "▼"}</span>
+              <svg
+                width="14" height="14" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className={`text-slate-gray transition-transform duration-200 ${materialAccordionOpen ? "rotate-180" : ""}`}
+                aria-hidden
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
             {materialAccordionOpen && (
-              <div className="border-t border-border-lavender bg-cloud-gray px-5 py-4 text-[11px] leading-relaxed text-slate-gray">
-                <pre className="whitespace-pre-wrap font-mono text-[11px]">
-                  {`Matriks keputusan yang digunakan sistem:
-
-Tekanan ≤ 100m, Diameter ≤ 110mm  → PVC AW PN-10  (C=140)
-Tekanan ≤ 100m, Diameter > 110mm  → HDPE PE100 PN-10  (C=140)
-Tekanan 100–160m                   → HDPE PE100 PN-16  (C=140)
-Tekanan > 160m                     → GIP Heavy / Steel  (C=120)
-
-Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) ·
-           SNI 07-0242.1-2000 (GIP) · EPANET 2.2 Manual Table 3.2`}
-                </pre>
+              <div className="border-t border-border-lavender bg-cloud-gray/60 px-5 py-4 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-gray">
+                  Matriks Keputusan
+                </p>
+                <div className="space-y-1.5 text-sm text-near-black">
+                  <div className="flex gap-3">
+                    <span className="w-56 shrink-0 text-slate-gray">Tekanan ≤ 100m, D ≤ 110mm</span>
+                    <span className="font-medium">PVC AW PN-10 <span className="text-slate-gray font-normal">(C=140)</span></span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="w-56 shrink-0 text-slate-gray">Tekanan ≤ 100m, D &gt; 110mm</span>
+                    <span className="font-medium">HDPE PE100 PN-10 <span className="text-slate-gray font-normal">(C=140)</span></span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="w-56 shrink-0 text-slate-gray">Tekanan 100–160m</span>
+                    <span className="font-medium">HDPE PE100 PN-16 <span className="text-slate-gray font-normal">(C=140)</span></span>
+                  </div>
+                  <div className="flex gap-3">
+                    <span className="w-56 shrink-0 text-slate-gray">Tekanan &gt; 160m</span>
+                    <span className="font-medium">GIP Heavy / Steel <span className="text-slate-gray font-normal">(C=120)</span></span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-gray">
+                  Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) · SNI 07-0242.1-2000 (GIP) · EPANET 2.2 Manual Table 3.2
+                </p>
               </div>
             )}
           </div>
@@ -568,7 +596,7 @@ Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) ·
               )}
               {materials.some((m) => m.notes.some((note) => note.includes("Evaluasi ulang"))) && (
                 <p className="text-xs italic text-orange-700">
-                  ⚠️ Beberapa pipa di zona PRV perlu evaluasi ulang material setelah tekanan berubah.
+                  Beberapa pipa di zona PRV perlu evaluasi ulang material setelah tekanan berubah.
                 </p>
               )}
             </div>

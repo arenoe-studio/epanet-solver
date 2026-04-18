@@ -243,8 +243,9 @@ export default function UploadPage() {
   return (
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-16">
       {state === "upload" ? (
-        <div className="space-y-8">
-          <div>
+        <div className="flex flex-col items-center">
+          <div className="w-full max-w-2xl space-y-8">
+          <div className="text-center">
             <h1 className="text-3xl font-bold tracking-[-0.035em] text-expo-black">
               Upload file <span className="font-mono">.inp</span>
             </h1>
@@ -258,6 +259,7 @@ export default function UploadPage() {
               setState("file-selected");
             }}
           />
+          </div>
         </div>
       ) : null}
 

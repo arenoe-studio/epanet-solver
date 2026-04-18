@@ -76,7 +76,7 @@ def analyze_prv_recommendations(
         if any("P-HIGH" in f for f in info.get("flags", []))
     }
     if not high_nodes:
-        return {"needed": False, "tokenCost": 6, "recommendations": []}
+        return {"needed": False, "tokenCost": 3, "recommendations": []}
 
     flow = sim_results["flow"]
     flow_by_pipe = flow.to_dict() if hasattr(flow, "to_dict") else dict(flow)
@@ -152,7 +152,7 @@ def analyze_prv_recommendations(
             }
         )
 
-    return {"needed": True, "tokenCost": 6, "recommendations": recs}
+    return {"needed": True, "tokenCost": 3, "recommendations": recs}
 
 
 def _midpoint_coords(wn: wntr.network.WaterNetworkModel, n1: str, n2: str) -> tuple[float, float]:
