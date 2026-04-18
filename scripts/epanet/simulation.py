@@ -93,34 +93,48 @@ def evaluate_network(
     vhl_violations = 0
 
     # --- Tekanan node --------------------------------------------------------
+    # Synthetic junctions created by apply_prvs (J_PRV_*) sit on the upstream
+    # side of a PRV valve; they carry unregulated upstream pressure by design.
+    # Exclude them from violation counting but keep them in node_status.
     node_status: dict = {}
     for nid, p in pressure.items():
+        is_synthetic = str(nid).startswith("J_PRV_")
         flags: list[str] = []
         if p < 0:
             code = "P-NEG"
             flags.append(f"P-NEG ({p:.2f} m)")
+            if not is_synthetic:
+                violations.append({
+                    "element": nid, "type": "NODE", "issue": "P-NEG",
+                    "value": p, "threshold": 0.0, "unit": "m", "priority": "CRITICAL",
+                })
         elif p < PRESSURE_MIN:
             code = "P-LOW"
             flags.append(f"P-LOW ({p:.2f} m < {PRESSURE_MIN} m)")
-            violations.append({
-                "element": nid, "type": "NODE", "issue": "P-LOW",
-                "value": p, "threshold": PRESSURE_MIN, "unit": "m", "priority": "HIGH",
-            })
+            if not is_synthetic:
+                violations.append({
+                    "element": nid, "type": "NODE", "issue": "P-LOW",
+                    "value": p, "threshold": PRESSURE_MIN, "unit": "m", "priority": "HIGH",
+                })
         elif p > PRESSURE_MAX:
             code = "P-HIGH"
-            flags.append(f"P-HIGH ({p:.2f} m > {PRESSURE_MAX} m)")
-            violations.append({
-                "element": nid, "type": "NODE", "issue": "P-HIGH",
-                "value": p, "threshold": PRESSURE_MAX, "unit": "m", "priority": "MEDIUM",
-            })
+            if is_synthetic:
+                flags.append(f"P-HIGH-PRV ({p:.2f} m upstream of PRV — by design)")
+            else:
+                flags.append(f"P-HIGH ({p:.2f} m > {PRESSURE_MAX} m)")
+                violations.append({
+                    "element": nid, "type": "NODE", "issue": "P-HIGH",
+                    "value": p, "threshold": PRESSURE_MAX, "unit": "m", "priority": "MEDIUM",
+                })
         else:
             code = "P-OK"
 
         node_status[nid] = {
             "pressure": p,
-            "ok": len(flags) == 0,
+            "ok": len(flags) == 0 or is_synthetic,
             "flags": flags,
             "code": code,
+            "synthetic": is_synthetic,
         }
 
     # --- Kecepatan & headloss pipa ------------------------------------------
@@ -152,8 +166,18 @@ def evaluate_network(
         else:
             composite = "OK"
 
+        # Priority mapping for pipe issues:
+        #   V-HIGH / HL-SMALL → HIGH (erosion / undersized pipe)
+        #   HL-HIGH           → MEDIUM
+        #   V-LOW             → LOW    (sedimentation risk, not urgent)
+        _pipe_priority = {
+            "V-HIGH": "HIGH",
+            "HL-SMALL": "HIGH",
+            "HL-HIGH": "MEDIUM",
+            "V-LOW": "LOW",
+        }
         for code in issues:
-            priority = "HIGH" if code in ("V-HIGH", "HL-SMALL") else "MEDIUM"
+            priority = _pipe_priority.get(code, "MEDIUM")
             violations.append({
                 "element": pid, "type": "PIPE", "issue": code,
                 "value":     v   if "V" in code else hl,
@@ -177,3 +201,35 @@ def evaluate_network(
         "all_ok":      len(violations) == 0,
         "all_vhl_ok":  vhl_violations == 0,
     }
+
+
+# ===========================================================================
+# SEVERITY SCORING
+# ===========================================================================
+
+# Weighted scoring: one CRITICAL violation (negative pressure / cavitation) is
+# worse than many MEDIUM issues. Lets the report flag cases where fixing one
+# problem created a more severe one elsewhere.
+SEVERITY_WEIGHTS = {
+    "CRITICAL": 100.0,
+    "HIGH":     10.0,
+    "MEDIUM":   3.0,
+    "LOW":      1.0,
+}
+
+
+def severity_breakdown(violations: list[dict]) -> dict[str, int]:
+    """Count violations by priority bucket (CRITICAL/HIGH/MEDIUM/LOW)."""
+    buckets = {k: 0 for k in SEVERITY_WEIGHTS}
+    for v in violations or []:
+        pri = str(v.get("priority", "MEDIUM")).upper()
+        if pri not in buckets:
+            pri = "MEDIUM"
+        buckets[pri] += 1
+    return buckets
+
+
+def severity_score(violations: list[dict]) -> float:
+    """Weighted sum across severity buckets."""
+    b = severity_breakdown(violations)
+    return sum(b[k] * SEVERITY_WEIGHTS[k] for k in b)

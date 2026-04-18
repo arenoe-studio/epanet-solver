@@ -11,6 +11,7 @@ import wntr
 
 from .config import PRESSURE_MAX, PRESSURE_MIN
 from .diameter import status_symbol
+from .simulation import severity_breakdown, severity_score
 
 
 def _violation_table(md: list[str], violations: list[dict]) -> None:
@@ -53,11 +54,13 @@ def _pipe_before_after_table(
     after_eval: dict,
 ) -> None:
     md.append(
-        "| Pipe | Len (m) | D Before (mm) | D After (mm) | Flow After (L/s) "
+        "| Pipe | Dir (start→end) | Len (m) | D Before (mm) | D After (mm) "
+        "| Flow Before (L/s) | Flow After (L/s) "
         "| V Before (m/s) | V After (m/s) | HL Before (m/km) | HL After (m/km) | St.B | St.A | Flag After |"
     )
     md.append(
-        "|------|---------|--------------|-------------|----------------|"
+        "|------|-----------------|---------|--------------|-------------|"
+        "------------------|----------------|"
         "---------------|--------------|----------------|---------------|------|------|-----------|"
     )
 
@@ -65,16 +68,41 @@ def _pipe_before_after_table(
         pipe = wn.get_link(pid)
         ps_b = before_eval["pipe_status"].get(pid, {})
         ps_a = after_eval["pipe_status"].get(pid, {})
-        flags = ps_a.get("flags", [])
+        flags = list(ps_a.get("flags", []))
+        flow_b_lps = float(ps_b.get("flow", 0.0)) * 1000.0
+        flow_a_lps = float(ps_a.get("flow", 0.0)) * 1000.0
+        if flow_a_lps < 0:
+            flags.append("FLOW-REV (arah pipa perlu dibalik)")
+        dir_label = f"{pipe.start_node_name}→{pipe.end_node_name}"
         md.append(
-            f"| {pid} | {float(pipe.length):.1f} "
+            f"| {pid} | {dir_label} | {float(pipe.length):.1f} "
             f"| {float(ps_b.get('diameter', pipe.diameter)) * 1000:.0f} "
             f"| {float(ps_a.get('diameter', pipe.diameter)) * 1000:.0f} "
-            f"| {float(ps_a.get('flow', 0.0)) * 1000:.3f} "
+            f"| {flow_b_lps:.3f} | {flow_a_lps:.3f} "
             f"| {float(ps_b.get('velocity', 0.0)):.3f} | {float(ps_a.get('velocity', 0.0)):.3f} "
             f"| {float(ps_b.get('headloss', 0.0)):.2f} | {float(ps_a.get('headloss', 0.0)):.2f} "
             f"| {status_symbol(bool(ps_b.get('ok', True)))} | {status_symbol(bool(ps_a.get('ok', True)))} "
             f"| {'; '.join(flags) if flags else '—'} |"
+        )
+
+
+def _reversed_flow_table(md: list[str], wn: wntr.network.WaterNetworkModel, after_eval: dict) -> None:
+    rows = []
+    for pid in sorted(wn.pipe_name_list):
+        ps = after_eval["pipe_status"].get(pid, {})
+        q = float(ps.get("flow", 0.0))
+        if q < 0:
+            pipe = wn.get_link(pid)
+            rows.append((pid, pipe.start_node_name, pipe.end_node_name, abs(q) * 1000.0))
+    if not rows:
+        md.append("_Tidak ada pipa dengan arah aliran terbalik._")
+        return
+    md.append("| Pipe | Defined (start→end) | Actual flow direction | |Q| (L/s) | Saran |")
+    md.append("|------|--------------------|-----------------------|----------|-------|")
+    for pid, s, e, q in rows:
+        md.append(
+            f"| {pid} | {s}→{e} | {e}→{s} | {q:.3f} | "
+            f"Balik urutan node di [PIPES] jadi `{e} {s}` agar arah definisi sesuai aliran. |"
         )
 
 
@@ -135,6 +163,41 @@ def export_markdown_report(
     md.append(f"- Pelanggaran akhir: **{len(after_eval.get('violations', []))}**")
     md.append("")
 
+    sev_b = severity_breakdown(baseline_eval.get("violations", []))
+    sev_a = severity_breakdown(after_eval.get("violations", []))
+    score_b = severity_score(baseline_eval.get("violations", []))
+    score_a = severity_score(after_eval.get("violations", []))
+
+    md.append("### Keparahan Pelanggaran")
+    md.append("")
+    md.append("| Level | Before | After | Δ |")
+    md.append("|-------|--------|-------|---|")
+    for level in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        b = sev_b.get(level, 0)
+        a = sev_a.get(level, 0)
+        delta = a - b
+        arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "=")
+        md.append(f"| {level} | {b} | {a} | {arrow} {delta:+d} |")
+    md.append("")
+
+    if score_a > score_b + 1e-6:
+        verdict = (
+            f"⚠ **Skor keparahan memburuk: {score_b:.0f} → {score_a:.0f}** "
+            "(fix menimbulkan pelanggaran lebih berat di tempat lain)."
+        )
+    elif score_a + 1e-6 < score_b:
+        verdict = f"✓ Skor keparahan membaik: {score_b:.0f} → {score_a:.0f}."
+    else:
+        verdict = f"Skor keparahan tidak berubah: {score_b:.0f}."
+    md.append(f"> {verdict}")
+    md.append("")
+    if sev_a.get("CRITICAL", 0) > 0:
+        md.append(
+            "> ⚠ Terdapat pelanggaran **CRITICAL** (tekanan negatif/kavitasi). "
+            "Wajib ditangani sebelum implementasi fisik."
+        )
+        md.append("")
+
     md.append("## Masalah Ditemukan (Kondisi Awal)")
     md.append("")
     if baseline_eval.get("violations"):
@@ -151,6 +214,11 @@ def export_markdown_report(
     md.append("## Hasil Pipa — Before vs After")
     md.append("")
     _pipe_before_after_table(md, wn_orig, baseline_eval, after_eval)
+    md.append("")
+
+    md.append("## Pipa dengan Arah Aliran Terbalik")
+    md.append("")
+    _reversed_flow_table(md, wn_orig, after_eval)
     md.append("")
 
     md.append("## Rekomendasi Material per Pipa")
