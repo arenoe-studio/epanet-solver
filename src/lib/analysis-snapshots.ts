@@ -45,4 +45,3 @@ export async function upsertAnalysisSnapshot(
     // ignore persist errors
   }
 }
-

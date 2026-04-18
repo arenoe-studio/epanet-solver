@@ -15,6 +15,7 @@ import type { AnalysisResult } from "@/types";
 
 type ResultsPanelProps = {
   result: AnalysisResult;
+  onBackToUpload?: () => void;
   onAnalyzeAnother: () => void;
   onFixPressure: () => void;
   isFixingPressure: boolean;
@@ -95,6 +96,7 @@ function FilterPill({
 
 export function ResultsPanel({
   result,
+  onBackToUpload,
   onAnalyzeAnother,
   onFixPressure,
   isFixingPressure,
@@ -168,11 +170,18 @@ export function ResultsPanel({
 
       {/* BLOK 1 — STATUS HEADER */}
       <div>
-        <div
-          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badgeClass}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden />
-          {overallBadge.text}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badgeClass}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} aria-hidden />
+            {overallBadge.text}
+          </div>
+          {onBackToUpload ? (
+            <Button variant="ghost" size="sm" onClick={onBackToUpload}>
+              Kembali
+            </Button>
+          ) : null}
         </div>
 
         <h2 className="mt-3 text-3xl font-bold tracking-[-0.035em] text-expo-black">

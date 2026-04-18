@@ -221,6 +221,7 @@ export async function POST(req: Request) {
       const payload = {
         analysisId,
         fileName: result.summary?.fileName ?? file.name,
+        sourceFileName: file.name,
         summary: result.summary,
         prv: result.prv,
         files: result.files,

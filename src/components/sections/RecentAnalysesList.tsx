@@ -9,15 +9,15 @@ type RecentAnalysesListProps = {
   viewingId?: number | null;
 };
 
-type AnalysisRow = {
-  id: number;
+type RecentRow = {
+  rootId: number;
+  viewId: number;
   fileName: string | null;
-  kind: string | null;
-  parentAnalysisId: number | null;
   status: string | null;
   issuesFound: number | null;
   issuesFixed: number | null;
   createdAt: string | Date | null;
+  hasFinal: boolean;
 };
 
 async function fetcher(url: string) {
@@ -42,7 +42,7 @@ export function RecentAnalysesList({ onView, viewingId }: RecentAnalysesListProp
     revalidateOnFocus: false
   });
 
-  const items: AnalysisRow[] = data?.items ?? [];
+  const items: RecentRow[] = data?.items ?? [];
 
   return (
     <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper">
@@ -65,19 +65,17 @@ export function RecentAnalysesList({ onView, viewingId }: RecentAnalysesListProp
         ) : (
           <ul className="divide-y divide-border-lavender">
             {items.map((r) => {
-              const kindLabel =
-                r.kind === "fix_pressure"
-                  ? r.parentAnalysisId
-                    ? `Final/PRV (#${r.parentAnalysisId})`
-                    : "Final/PRV"
-                  : "V1";
+              const kindLabel = r.hasFinal ? "Final/PRV" : "V1";
               const issuesLabel =
                 typeof r.issuesFound === "number" && typeof r.issuesFixed === "number"
                   ? `${r.issuesFound} → ${r.issuesFound - r.issuesFixed}`
                   : "—";
 
               return (
-                <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <li
+                  key={r.rootId}
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
                   <div className="min-w-[220px]">
                     <div className="truncate text-sm font-semibold text-expo-black">
                       {r.fileName ?? "—"}
@@ -90,10 +88,10 @@ export function RecentAnalysesList({ onView, viewingId }: RecentAnalysesListProp
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => onView(r.id)}
-                    disabled={viewingId === r.id}
+                    onClick={() => onView(r.viewId)}
+                    disabled={viewingId === r.viewId}
                   >
-                    {viewingId === r.id ? "Membuka…" : "Lihat Analisis"}
+                    {viewingId === r.viewId ? "Membuka…" : "Lihat Analisis"}
                   </Button>
                 </li>
               );
@@ -104,4 +102,3 @@ export function RecentAnalysesList({ onView, viewingId }: RecentAnalysesListProp
     </div>
   );
 }
-

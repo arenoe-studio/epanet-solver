@@ -68,6 +68,12 @@ export default function UploadPage() {
     }
   }, [push, status]);
 
+  function base64ToFile(base64: string, filename: string) {
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "text/plain" });
+    return new File([blob], filename, { type: "text/plain" });
+  }
+
   async function runAnalysis() {
     if (!selectedFile) return;
     if (isAnalyzing) return;
@@ -164,7 +170,17 @@ export default function UploadPage() {
       }
 
       setSelectedFile(null);
-      setResult(json as AnalysisResult);
+      const history = json as AnalysisResult;
+      if (history.sourceFileBase64 && history.sourceFileName) {
+        try {
+          setSelectedFile(base64ToFile(history.sourceFileBase64, history.sourceFileName));
+        } catch {
+          setSelectedFile(null);
+        }
+      } else {
+        setSelectedFile(null);
+      }
+      setResult(history);
       setState("results");
       push({ title: "Riwayat analisis dibuka", variant: "success" });
     } catch {
@@ -181,7 +197,8 @@ export default function UploadPage() {
     if (!selectedFile) {
       push({
         title: "Upload file terlebih dahulu",
-        description: "Fix Pressure membutuhkan file .inp yang akan diproses.",
+        description:
+          "Fix Pressure membutuhkan file .inp. Jika membuka dari riwayat, pastikan riwayat masih dalam 3 hari.",
         variant: "error"
       });
       return;
@@ -351,6 +368,12 @@ export default function UploadPage() {
         result ? (
           <ResultsPanel
             result={result}
+            onBackToUpload={() => {
+              setSelectedFile(null);
+              setResult(null);
+              setErrorMessage(null);
+              setState("upload");
+            }}
             onAnalyzeAnother={() => {
               setSelectedFile(null);
               setResult(null);

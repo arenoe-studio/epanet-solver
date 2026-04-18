@@ -210,9 +210,15 @@ export async function POST(req: Request) {
     }
 
     try {
+      const prvNeeded = result.prv?.needed ?? false;
+      const sourceFileBase64 = prvNeeded
+        ? Buffer.from(await file.arrayBuffer()).toString("base64")
+        : undefined;
       const payload = {
         analysisId,
         fileName: result.summary?.fileName ?? file.name,
+        sourceFileName: file.name,
+        sourceFileBase64,
         summary: result.summary,
         prv: result.prv,
         files: result.files,

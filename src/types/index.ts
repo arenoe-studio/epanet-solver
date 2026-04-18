@@ -50,6 +50,8 @@ export type NetworkInfo = {
 export type AnalysisResult = {
   analysisId: number;
   fileName: string;
+  sourceFileName?: string;
+  sourceFileBase64?: string;
   summary: {
     iterations: number;
     issuesFound: number;

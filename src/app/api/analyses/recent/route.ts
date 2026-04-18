@@ -41,8 +41,31 @@ export async function GET() {
     )
     .where(eq(analyses.userId, userId))
     .orderBy(desc(analyses.createdAt))
-    .limit(10);
+    .limit(60);
 
-  return NextResponse.json({ items: rows });
+  const seenRoot = new Set<number>();
+  const items = [];
+
+  for (const row of rows) {
+    const rootId =
+      row.kind === "fix_pressure" && typeof row.parentAnalysisId === "number"
+        ? row.parentAnalysisId
+        : row.id;
+    if (seenRoot.has(rootId)) continue;
+    seenRoot.add(rootId);
+
+    items.push({
+      rootId,
+      viewId: row.id,
+      fileName: row.fileName,
+      status: row.status,
+      issuesFound: row.issuesFound,
+      issuesFixed: row.issuesFixed,
+      createdAt: row.createdAt,
+      hasFinal: row.kind === "fix_pressure"
+    });
+    if (items.length >= 20) break;
+  }
+
+  return NextResponse.json({ items });
 }
-
