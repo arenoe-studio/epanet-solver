@@ -28,6 +28,10 @@ def _directed_edges_from_flow(
     wn: wntr.network.WaterNetworkModel,
     flow_by_pipe: dict,
 ) -> dict[str, list[str]]:
+    """
+    Build a directed adjacency (node -> [node]) following flow direction.
+    Uses sign of flow in each pipe.
+    """
     adj: dict[str, list[str]] = {}
     for pid in wn.pipe_name_list:
         pipe = wn.get_link(pid)
@@ -65,76 +69,165 @@ def _bfs_reachable(adj: dict[str, list[str]], start: str) -> set[str]:
     return seen
 
 
+def _node_elev(wn: wntr.network.WaterNetworkModel, nid: str) -> float:
+    try:
+        return float(wn.get_node(nid).elevation)
+    except Exception:
+        return 0.0
+
+
+def _feasible_setting(
+    elev_prv_ref: float,
+    covered_elevs: list[float],
+) -> tuple[float | None, float, float]:
+    """
+    Static-head feasibility for a single PRV covering nodes with given elevations.
+    Model: P_node ≈ setting + (elev_prv_ref - elev_node).
+    Requires for all covered nodes: PRESSURE_MIN ≤ P_node ≤ PRESSURE_MAX.
+
+    Returns (setting, lo_bound, hi_bound).
+    setting is None when infeasible (hi_bound < lo_bound).
+    """
+    if not covered_elevs:
+        return PRV_PRESSURE_TARGET, PRESSURE_MIN, PRESSURE_MAX
+
+    elev_high = max(covered_elevs)
+    elev_low = min(covered_elevs)
+    # upper bound — lowest node receives the highest pressure
+    hi_bound = PRESSURE_MAX - (elev_prv_ref - elev_low)
+    # lower bound — highest node receives the lowest pressure
+    lo_bound = PRESSURE_MIN - (elev_prv_ref - elev_high)
+
+    if hi_bound + 1e-6 < lo_bound:
+        return None, lo_bound, hi_bound
+
+    target = float(PRV_PRESSURE_TARGET)
+    setting = max(lo_bound, min(hi_bound, target))
+    # Never push below 0 (physical floor on PRV setting)
+    setting = max(0.0, setting)
+    return setting, lo_bound, hi_bound
+
+
+def _restrict_to_band(
+    candidate_high_nodes: list[str],
+    node_elev: dict[str, float],
+    elev_prv_ref: float,
+) -> tuple[list[str], float | None]:
+    """
+    Given candidate P-HIGH nodes reachable downstream from a pipe, pick the
+    largest subset whose elevation span is small enough that a single PRV
+    setting can keep all of them within [PRESSURE_MIN, PRESSURE_MAX].
+
+    Greedy: sort by elevation descending, start from the highest node, keep
+    adding lower-elevation nodes while the resulting set remains feasible.
+    """
+    if not candidate_high_nodes:
+        return [], None
+
+    sorted_nodes = sorted(candidate_high_nodes, key=lambda n: -node_elev.get(n, 0.0))
+    selected: list[str] = []
+    best_setting: float | None = None
+
+    for n in sorted_nodes:
+        trial = selected + [n]
+        trial_elevs = [node_elev.get(x, 0.0) for x in trial]
+        setting, _, _ = _feasible_setting(elev_prv_ref, trial_elevs)
+        if setting is None:
+            break
+        selected = trial
+        best_setting = setting
+
+    return selected, best_setting
+
+
 def analyze_prv_recommendations(
     wn: wntr.network.WaterNetworkModel,
     sim_results: dict,
     eval_results: dict,
 ) -> dict:
+    """
+    Modul 3A: produce advisory PRV recommendations if P-HIGH exists.
+
+    Algorithm:
+      1. Build directed graph from flow.
+      2. For each pipe whose downstream reach contains ≥1 P-HIGH node, compute
+         the largest feasible subset (elevation-band aware) it can cover with
+         a single PRV setting.
+      3. Greedy set-cover on those feasible subsets until all P-HIGH nodes are
+         covered. Multiple PRVs may be recommended if a single one cannot span
+         the whole elevation gradient.
+      4. Remaining uncovered nodes are reported as `unresolvedNodes`.
+    """
     high_nodes = {
         nid
         for nid, info in eval_results["node_status"].items()
         if any("P-HIGH" in f for f in info.get("flags", []))
     }
     if not high_nodes:
-        return {"needed": False, "tokenCost": 3, "recommendations": []}
+        return {"needed": False, "tokenCost": 3, "recommendations": [], "unresolvedNodes": []}
 
     flow = sim_results["flow"]
     flow_by_pipe = flow.to_dict() if hasattr(flow, "to_dict") else dict(flow)
 
     adj = _directed_edges_from_flow(wn, flow_by_pipe)
+    node_elev = {nid: _node_elev(wn, nid) for nid in wn.junction_name_list}
 
-    candidate_pipes: set[str] = set()
-    for pid in wn.pipe_name_list:
-        u, v = _pipe_dir(wn, pid, flow_by_pipe)
-        if v in high_nodes:
-            candidate_pipes.add(pid)
-
-    candidates = []
-    for pid in sorted(candidate_pipes):
+    # Candidate pipes: any pipe whose downstream node leads to a P-HIGH node
+    candidates: list[tuple[str, str, str, set[str], float]] = []
+    for pid in sorted(wn.pipe_name_list):
         u, v = _pipe_dir(wn, pid, flow_by_pipe)
         reachable = _bfs_reachable(adj, v)
-        covered = sorted(high_nodes.intersection(reachable))
-        if not covered:
+        covered_high = high_nodes.intersection(reachable)
+        if not covered_high:
             continue
-        candidates.append((pid, u, v, set(covered), reachable))
+        elev_prv_ref = node_elev.get(v, 0.0)
+        candidates.append((pid, u, v, covered_high, elev_prv_ref))
 
     uncovered = set(high_nodes)
     chosen: list[PrvRecommendation] = []
+    used_pipes: set[str] = set()
 
     while uncovered and candidates:
         best = None
-        best_count = -1
-        for pid, u, v, covered_set, reachable in candidates:
-            count = len(covered_set & uncovered)
-            if count > best_count:
-                best = (pid, u, v, covered_set, reachable)
-                best_count = count
-        if not best or best_count <= 0:
-            break
-        pid, u, v, covered_set, reachable = best
-
-        elev_max = None
-        for nid in reachable:
-            if nid not in wn.junction_name_list:
+        best_setting: float | None = None
+        best_selected: list[str] = []
+        for pid, u, v, covered_high, elev_prv_ref in candidates:
+            if pid in used_pipes:
                 continue
-            elev = float(wn.get_node(nid).elevation)
-            elev_max = elev if elev_max is None else max(elev_max, elev)
-        elev_max = float(elev_max or 0.0)
-        # EPANET PRV "Setting" is a downstream pressure setpoint (m), not head.
-        setting_head = float(PRV_PRESSURE_TARGET)
+            high_in_uncovered = [n for n in covered_high if n in uncovered]
+            if not high_in_uncovered:
+                continue
+            selected, setting = _restrict_to_band(high_in_uncovered, node_elev, elev_prv_ref)
+            if not selected or setting is None:
+                continue
+            if len(selected) > len(best_selected):
+                best = (pid, u, v, elev_prv_ref)
+                best_selected = selected
+                best_setting = setting
+
+        if best is None or not best_selected or best_setting is None:
+            break
+
+        pid, u, v, elev_prv_ref = best
+        used_pipes.add(pid)
+
+        reachable = _bfs_reachable(adj, v)
+        elev_max = max(
+            (node_elev[nid] for nid in reachable if nid in node_elev),
+            default=elev_prv_ref,
+        )
 
         chosen.append(
             PrvRecommendation(
                 pipe_id=pid,
                 upstream_node=u,
                 downstream_node=v,
-                covered_nodes=sorted(covered_set & uncovered),
-                setting_head_m=setting_head,
-                elevation_max_m=elev_max,
+                covered_nodes=sorted(best_selected),
+                setting_head_m=float(best_setting),
+                elevation_max_m=float(elev_max),
             )
         )
-        uncovered -= covered_set
-        candidates = [c for c in candidates if c[0] != pid]
+        uncovered -= set(best_selected)
 
     recs = []
     for rec in chosen:
@@ -152,7 +245,12 @@ def analyze_prv_recommendations(
             }
         )
 
-    return {"needed": True, "tokenCost": 3, "recommendations": recs}
+    return {
+        "needed": True,
+        "tokenCost": 3,
+        "recommendations": recs,
+        "unresolvedNodes": sorted(uncovered),
+    }
 
 
 def _midpoint_coords(wn: wntr.network.WaterNetworkModel, n1: str, n2: str) -> tuple[float, float]:
@@ -243,6 +341,10 @@ def apply_prvs(
     wn: wntr.network.WaterNetworkModel,
     recommendations: Iterable[dict],
 ) -> list[dict]:
+    """
+    Apply PRV insertions into the network (Modul 3B structural changes).
+    Returns a log list of applied edits.
+    """
     log: list[dict] = []
 
     for idx, rec in enumerate(recommendations, 1):
@@ -274,7 +376,6 @@ def apply_prvs(
             vertices = list(reversed(vertices))
 
         points = [_node_xy(wn, up_node)] + vertices + [_node_xy(wn, dn_node)]
-        x_mid, y_mid, up_vertices, dn_vertices = (0.0, 0.0, [], [])
         (x_mid, y_mid), up_vertices, dn_vertices = _split_polyline_at_fraction(points, 0.5)
 
         elev_dn = float(getattr(wn.get_node(dn_node), "elevation", 0.0))
@@ -289,6 +390,7 @@ def apply_prvs(
         p_dn = f"{pipe_id}_B"
         v_id = f"PRV_{pipe_id}"
 
+        # Ensure uniqueness (fallback with idx suffix)
         for name in (j_up, j_dn, p_up, p_dn, v_id):
             if name in wn.node_name_list or name in wn.link_name_list:
                 suffix = f"_{idx}"
@@ -299,13 +401,14 @@ def apply_prvs(
                 v_id += suffix
                 break
 
-        # Remove the original pipe (including its vertices) after we've copied
-        # what we need for geometry preservation.
+        # Remove original pipe (after copying vertices for geometry preservation)
         wn.remove_link(pipe_id)
 
+        # Add junctions (no demand)
         wn.add_junction(j_up, base_demand=0.0, elevation=elev_mid, coordinates=(x_mid, y_mid))
         wn.add_junction(j_dn, base_demand=0.0, elevation=elev_mid, coordinates=(x_mid, y_mid))
 
+        # Split length
         L = float(pipe.length)
         L1 = L / 2.0
         L2 = L - L1
@@ -363,12 +466,49 @@ def apply_prvs(
     return log
 
 
+def _current_setting(valve) -> float:
+    try:
+        return float(
+            getattr(valve, "initial_setting", getattr(valve, "setting", 0.0)) or 0.0
+        )
+    except Exception:
+        return 0.0
+
+
 def fine_tune_prvs(
     wn: wntr.network.WaterNetworkModel,
     prv_valve_ids: list[str],
 ) -> list[dict]:
+    """
+    Fine-tune PRV settings to keep real-node pressures within [PMIN, PMAX].
+
+    Termination reasons (recorded in the last row's `status`):
+      - OK          : all pressures within window
+      - CONFLICT    : max>PMAX and min<PMIN simultaneously (single-PRV coverage
+                      cannot resolve the elevation gradient)
+      - STAGNANT    : (min_p, max_p) unchanged across an iteration
+      - CLAMPED     : step would lower setting but all valves are already at 0
+      - MAX_ITER    : iteration budget exhausted
+    """
     tune_log: list[dict] = []
+    prev_max: float | None = None
+    prev_min: float | None = None
+
+    def _emit(it: int, step: float, min_p: float, max_p: float, status: str, reason: str) -> None:
+        tune_log.append(
+            {
+                "iter": it,
+                "deltaSettingM": float(step),
+                "minP": float(min_p),
+                "maxP": float(max_p),
+                "status": status,
+                "reason": reason,
+            }
+        )
+
+    last_iter = 0
     for it in range(1, PRV_MAX_ITERATIONS + 1):
+        last_iter = it
         sim = run_simulation(wn)
         ev = evaluate_network(wn, sim)
 
@@ -381,29 +521,64 @@ def fine_tune_prvs(
         max_p = max(pressures, default=0.0)
         min_p = min(pressures, default=0.0)
 
-        delta = 0.0
+        if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
+            _emit(
+                it, 0.0, min_p, max_p, "CONFLICT",
+                "max_p>PMAX dan min_p<PMIN bersamaan; butuh PRV bertingkat.",
+            )
+            return tune_log
+
+        if max_p <= PRESSURE_MAX and min_p >= PRESSURE_MIN:
+            _emit(it, 0.0, min_p, max_p, "OK", "Semua tekanan dalam rentang.")
+            return tune_log
+
         if max_p > PRESSURE_MAX:
             delta = -(max_p - PRESSURE_MAX)
-        elif min_p < PRESSURE_MIN:
-            delta = (PRESSURE_MIN - min_p)
+        else:
+            delta = PRESSURE_MIN - min_p
 
-        # Avoid overshooting by applying a capped step each iteration.
         step = max(-20.0, min(20.0, float(delta)))
         if abs(step) < 1e-6:
-            break
+            _emit(it, step, min_p, max_p, "OK", "Delta di bawah toleransi.")
+            return tune_log
+
+        if prev_max is not None and abs(prev_max - max_p) < 1e-3 and abs(prev_min - min_p) < 1e-3:
+            _emit(
+                it, step, min_p, max_p, "STAGNANT",
+                "Tekanan tidak berubah; setting PRV sudah jenuh.",
+            )
+            return tune_log
+        prev_max, prev_min = max_p, min_p
+
+        # Detect floor clamp: if step negative but all valves already at 0, stop.
+        if step < 0:
+            all_at_floor = True
+            for vid in prv_valve_ids:
+                try:
+                    if _current_setting(wn.get_link(vid)) > 1e-6:
+                        all_at_floor = False
+                        break
+                except Exception:
+                    all_at_floor = False
+                    break
+            if all_at_floor:
+                _emit(
+                    it, step, min_p, max_p, "CLAMPED",
+                    "Semua PRV di 0 m; tidak bisa diturunkan lagi.",
+                )
+                return tune_log
 
         for vid in prv_valve_ids:
             try:
                 valve = wn.get_link(vid)
-                current = float(
-                    getattr(valve, "initial_setting", getattr(valve, "setting", 0.0)) or 0.0
-                )
+                current = _current_setting(valve)
                 new_setting = max(0.0, current + step)
                 if hasattr(valve, "initial_setting"):
                     valve.initial_setting = new_setting
             except Exception:
                 continue
 
-        tune_log.append({"iter": it, "deltaSettingM": step, "minP": min_p, "maxP": max_p})
+        _emit(it, step, min_p, max_p, "STEP", "")
 
+    _emit(last_iter, 0.0, prev_min or 0.0, prev_max or 0.0, "MAX_ITER", "Iterasi maksimum tercapai.")
     return tune_log

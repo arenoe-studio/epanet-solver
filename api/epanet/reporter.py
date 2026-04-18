@@ -9,6 +9,7 @@ from pathlib import Path
 
 import wntr
 
+from .config import PRESSURE_MAX, PRESSURE_MIN
 from .diameter import status_symbol
 
 
@@ -168,6 +169,15 @@ def export_markdown_report(
         md.append(
             "> Catatan: Estimasi rekomendasi berdasarkan kalkulasi statis. Nilai aktual bisa berbeda."
         )
+        unresolved = prv.get("unresolvedNodes") or []
+        if unresolved:
+            md.append("")
+            md.append(
+                "> ⚠ Node berikut tidak tercakup oleh rekomendasi PRV otomatis "
+                f"(**{', '.join(unresolved)}**) — rentang elevasi subtree melebihi "
+                f"{PRESSURE_MAX - PRESSURE_MIN:.0f} m. Pertimbangkan penambahan PRV manual "
+                "di pipa hilir pada band elevasi yang lebih rendah."
+            )
     else:
         md.append("_Tidak ada node P-HIGH, PRV tidak diperlukan._")
     md.append("")
@@ -219,13 +229,23 @@ def export_markdown_report(
         if prv_tune_log:
             md.append("### Fine-tuning Setting PRV")
             md.append("")
-            md.append("| Iter | Delta Setting (m) | Min P (m) | Max P (m) |")
-            md.append("|------|------------------|-----------|-----------|")
+            md.append("| Iter | Delta Setting (m) | Min P (m) | Max P (m) | Status | Keterangan |")
+            md.append("|------|------------------|-----------|-----------|--------|------------|")
             for row in prv_tune_log:
                 md.append(
-                    f"| {row.get('iter')} | {float(row.get('deltaSettingM', 0.0)):.2f} | {float(row.get('minP', 0.0)):.2f} | {float(row.get('maxP', 0.0)):.2f} |"
+                    f"| {row.get('iter')} | {float(row.get('deltaSettingM', 0.0)):.2f} | "
+                    f"{float(row.get('minP', 0.0)):.2f} | {float(row.get('maxP', 0.0)):.2f} | "
+                    f"{row.get('status', '—')} | {row.get('reason', '') or '—'} |"
                 )
             md.append("")
+            final_row = prv_tune_log[-1] if prv_tune_log else None
+            if final_row and final_row.get("status") in {"CONFLICT", "STAGNANT", "CLAMPED", "MAX_ITER"}:
+                md.append(
+                    "> ⚠ Fine-tune berhenti dengan status "
+                    f"**{final_row.get('status')}** — {final_row.get('reason') or 'tidak dapat konvergen'}. "
+                    "Periksa apakah jaringan butuh PRV tambahan di lokasi dengan elevasi rendah."
+                )
+                md.append("")
 
     md.append("## Referensi Standar")
     md.append("")
