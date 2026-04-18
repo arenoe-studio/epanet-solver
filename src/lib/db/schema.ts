@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   serial,
@@ -122,6 +123,22 @@ export const analyses = pgTable("analyses", {
   tokensUsed: integer("tokens_used").default(6),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
 });
+
+export const analysisSnapshots = pgTable(
+  "analysis_snapshots",
+  {
+    analysisId: integer("analysis_id")
+      .notNull()
+      .references(() => analyses.id, { onDelete: "cascade" })
+      .primaryKey(),
+    payload: jsonb("payload").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
+  },
+  (table) => ({
+    expiresAtIdx: index("analysis_snapshots_expires_at_idx").on(table.expiresAt)
+  })
+);
 
 export const transactions = pgTable(
   "transactions",

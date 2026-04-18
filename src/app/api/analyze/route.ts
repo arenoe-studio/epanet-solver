@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth-server";
 import { shouldBypassTokensForEmail } from "@/lib/admin";
+import { upsertAnalysisSnapshot } from "@/lib/analysis-snapshots";
 import { getDb } from "@/lib/db";
 import { analyses, tokenBalances } from "@/lib/db/schema";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
@@ -206,6 +207,25 @@ export async function POST(req: Request) {
       } catch {
         // If persisting the analysis metadata fails, still return the analysis result.
       }
+    }
+
+    try {
+      const payload = {
+        analysisId,
+        fileName: result.summary?.fileName ?? file.name,
+        summary: result.summary,
+        prv: result.prv,
+        files: result.files,
+        filesV1: result.filesV1,
+        filesFinal: result.filesFinal,
+        nodes: (result as any).nodes,
+        pipes: (result as any).pipes,
+        materials: (result as any).materials,
+        networkInfo: (result as any).networkInfo
+      };
+      await upsertAnalysisSnapshot(db, analysisId, payload);
+    } catch {
+      // ignore snapshot failures
     }
 
     return NextResponse.json({ ...result, analysisId });

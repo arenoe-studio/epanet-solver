@@ -2,6 +2,7 @@ const {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   serial,
@@ -121,6 +122,22 @@ const analyses = pgTable("analyses", {
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
 });
 
+const analysisSnapshots = pgTable(
+  "analysis_snapshots",
+  {
+    analysisId: integer("analysis_id")
+      .notNull()
+      .references(() => analyses.id, { onDelete: "cascade" })
+      .primaryKey(),
+    payload: jsonb("payload").notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
+  },
+  (table) => ({
+    expiresAtIdx: index("analysis_snapshots_expires_at_idx").on(table.expiresAt)
+  })
+);
+
 const transactions = pgTable(
   "transactions",
   {
@@ -145,6 +162,7 @@ const transactions = pgTable(
 module.exports = {
   accounts,
   analyses,
+  analysisSnapshots,
   authOtpCodes,
   sessions,
   tokenBalances,

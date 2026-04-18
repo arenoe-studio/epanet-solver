@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { FileSelectedCard } from "@/components/sections/FileSelectedCard";
 import { ProcessingState } from "@/components/sections/ProcessingState";
+import { RecentAnalysesList } from "@/components/sections/RecentAnalysesList";
 import { ResultsPanel } from "@/components/sections/ResultsPanel";
 import { UploadZone } from "@/components/sections/UploadZone";
 import { useFilePreview } from "@/hooks/useFilePreview";
@@ -22,6 +23,8 @@ export default function UploadPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isFixingPressure, setIsFixingPressure] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [viewingHistoryId, setViewingHistoryId] = useState<number | null>(null);
 
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
@@ -43,6 +46,9 @@ export default function UploadPage() {
       setErrorMessage(null);
       setState("upload");
       setIsAnalyzing(false);
+      setIsFixingPressure(false);
+      setIsLoadingHistory(false);
+      setViewingHistoryId(null);
     }
   }, [isLoggedIn]);
 
@@ -136,8 +142,50 @@ export default function UploadPage() {
     }
   }
 
+  async function openHistoryAnalysis(analysisId: number) {
+    if (isAnalyzing) return;
+    if (isFixingPressure) return;
+    if (isLoadingHistory) return;
+
+    setErrorMessage(null);
+    setIsLoadingHistory(true);
+    setViewingHistoryId(analysisId);
+    setState("processing");
+
+    try {
+      const res = await fetch(`/api/analyses/${analysisId}`);
+      const json = await res.json();
+      if (!res.ok) {
+        const msg = json?.error ?? "Riwayat tidak ditemukan.";
+        setErrorMessage(msg);
+        setState("error");
+        push({ title: "Gagal membuka riwayat", description: msg, variant: "error" });
+        return;
+      }
+
+      setSelectedFile(null);
+      setResult(json as AnalysisResult);
+      setState("results");
+      push({ title: "Riwayat analisis dibuka", variant: "success" });
+    } catch {
+      setErrorMessage("Riwayat tidak ditemukan atau sudah kedaluwarsa (maksimal 3 hari).");
+      setState("error");
+      push({ title: "Gagal membuka riwayat", variant: "error" });
+    } finally {
+      setIsLoadingHistory(false);
+      setViewingHistoryId(null);
+    }
+  }
+
   async function runFixPressure() {
-    if (!selectedFile) return;
+    if (!selectedFile) {
+      push({
+        title: "Upload file terlebih dahulu",
+        description: "Fix Pressure membutuhkan file .inp yang akan diproses.",
+        variant: "error"
+      });
+      return;
+    }
     if (!result?.analysisId) return;
     if (isAnalyzing) return;
     if (isFixingPressure) return;
@@ -259,6 +307,10 @@ export default function UploadPage() {
               setState("file-selected");
             }}
           />
+          <RecentAnalysesList
+            onView={openHistoryAnalysis}
+            viewingId={viewingHistoryId}
+          />
           </div>
         </div>
       ) : null}
@@ -283,12 +335,14 @@ export default function UploadPage() {
 
       {state === "processing" ? (
         <ProcessingState
-          isDone={!isAnalyzing && !isFixingPressure}
+          isDone={!isAnalyzing && !isFixingPressure && !isLoadingHistory}
           isError={false}
           onCancel={() => {
             setIsAnalyzing(false);
             setIsFixingPressure(false);
-            setState("file-selected");
+            setIsLoadingHistory(false);
+            setViewingHistoryId(null);
+            setState(selectedFile ? "file-selected" : "upload");
           }}
         />
       ) : null}
