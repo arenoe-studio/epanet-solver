@@ -153,21 +153,23 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         .optional(),
       filesV1: z
         .object({
-          inp: z.string(),
-          md: z.string()
+          inpPath: z.string(),
+          mdPath: z.string()
         })
         .optional(),
       filesFinal: z
         .object({
-          inp: z.string(),
-          md: z.string()
+          inpPath: z.string(),
+          mdPath: z.string()
         })
         .nullable()
         .optional(),
-      files: z.object({
-        inp: z.string(),
-        md: z.string()
-      })
+      files: z
+        .object({
+          inpPath: z.string(),
+          mdPath: z.string()
+        })
+        .optional()
     })
     .passthrough();
 
@@ -218,7 +220,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     mdUrl: `${fileBase}/report_v1.md`
   };
   const filesFinal =
-    result.filesFinal && (result.filesFinal as any)?.inp && (result.filesFinal as any)?.md
+    result.filesFinal && (result.filesFinal as any)?.inpPath && (result.filesFinal as any)?.mdPath
       ? {
           inpUrl: `${fileBase}/optimized_final.inp`,
           mdUrl: `${fileBase}/report_final.md`
