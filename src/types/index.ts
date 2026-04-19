@@ -52,6 +52,7 @@ export type AnalysisResult = {
   fileName: string;
   sourceFileName?: string;
   sourceFileBase64?: string;
+  sourceFileUrl?: string;
   summary: {
     iterations: number;
     issuesFound: number;
@@ -76,16 +77,22 @@ export type AnalysisResult = {
     }>;
   };
   files: {
-    inp: string;
-    md: string;
+    inp?: string;
+    md?: string;
+    inpUrl?: string;
+    mdUrl?: string;
   };
   filesV1?: {
-    inp: string;
-    md: string;
+    inp?: string;
+    md?: string;
+    inpUrl?: string;
+    mdUrl?: string;
   };
   filesFinal?: {
-    inp: string;
-    md: string;
+    inp?: string;
+    md?: string;
+    inpUrl?: string;
+    mdUrl?: string;
   } | null;
   nodes?: NodeResult[];
   pipes?: PipeResult[];

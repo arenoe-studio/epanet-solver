@@ -147,12 +147,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       );
     }
 
-    const result = parsedSuccess.data;
+  const result = parsedSuccess.data;
+
+  const fileBase = `/api/simulations/${encodeURIComponent(jobId)}/files`;
+  const filesV1 = {
+    inpUrl: `${fileBase}/optimized_v1.inp`,
+    mdUrl: `${fileBase}/report_v1.md`
+  };
+  const filesFinal =
+    result.filesFinal && (result.filesFinal as any)?.inp && (result.filesFinal as any)?.md
+      ? {
+          inpUrl: `${fileBase}/optimized_final.inp`,
+          mdUrl: `${fileBase}/report_final.md`
+        }
+      : null;
+  const files = filesFinal ?? filesV1;
 
   // Idempotency: if already marked success, just return the result.
-    if (analysis.status === "success") {
-      return NextResponse.json({ ...result, analysisId });
-    }
+  if (analysis.status === "success") {
+    return NextResponse.json({
+      ...result,
+      files,
+      filesV1,
+      filesFinal,
+      analysisId
+    });
+  }
 
   // Deduct tokens on completion (not when the job is created), unless bypassed.
   const tokenCost = analysis.kind === "fix_pressure" ? FIX_PRESSURE_TOKEN_COST : ANALYSIS_TOKEN_COST;
@@ -201,44 +221,36 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     } catch {
     }
 
-  // Store source file in snapshot if PRV is needed (for history -> fix pressure flow).
-    let sourceFileBase64: string | undefined = undefined;
-    if (analysis.kind !== "fix_pressure" && (result.prv?.needed ?? false)) {
-      try {
-        const inpRes = await fetch(
-          `${base}/v1/simulations/${encodeURIComponent(jobId)}/files/input.inp`,
-          { method: "GET" }
-        );
-        if (inpRes.ok) {
-          const buf = Buffer.from(await inpRes.arrayBuffer());
-          sourceFileBase64 = buf.toString("base64");
-        }
-      } catch {
-      }
-    }
+  const sourceFileUrl = `${fileBase}/input.inp`;
 
-    try {
-      const payload = {
-        analysisId,
-        fileName: result.summary?.fileName ?? analysis.fileName,
-        sourceFileName: analysis.fileName,
-        sourceFileBase64,
-        summary: result.summary,
-        prv: result.prv,
-        files: result.files,
-        filesV1: (result as any).filesV1,
-        filesFinal: (result as any).filesFinal,
-        nodes: (result as any).nodes,
-        pipes: (result as any).pipes,
-        materials: (result as any).materials,
-        networkInfo: (result as any).networkInfo,
-        backendJobId: jobId
-      };
-      await upsertAnalysisSnapshot(db, analysisId, payload);
-    } catch {
-    }
+  try {
+    const payload = {
+      analysisId,
+      fileName: result.summary?.fileName ?? analysis.fileName,
+      sourceFileName: analysis.fileName,
+      sourceFileUrl,
+      summary: result.summary,
+      prv: result.prv,
+      files,
+      filesV1,
+      filesFinal,
+      nodes: (result as any).nodes,
+      pipes: (result as any).pipes,
+      materials: (result as any).materials,
+      networkInfo: (result as any).networkInfo,
+      backendJobId: jobId
+    };
+    await upsertAnalysisSnapshot(db, analysisId, payload);
+  } catch {
+  }
 
-    return NextResponse.json({ ...result, analysisId });
+    return NextResponse.json({
+      ...result,
+      files,
+      filesV1,
+      filesFinal,
+      analysisId
+    });
   } catch (e) {
     console.error("GET /api/simulations/:jobId/result failed", e);
     return NextResponse.json({ success: false, error: "System error" }, { status: 500 });

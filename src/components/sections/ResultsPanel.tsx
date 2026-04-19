@@ -33,6 +33,32 @@ function downloadBase64File(base64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function downloadUrlFile(url: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noreferrer";
+  a.click();
+}
+
+function downloadFile(
+  file: { inp?: string; md?: string; inpUrl?: string; mdUrl?: string },
+  kind: "inp" | "md",
+  filename: string
+) {
+  const key = kind === "inp" ? "inp" : "md";
+  const keyUrl = kind === "inp" ? "inpUrl" : "mdUrl";
+  const base64 = (file as any)[key];
+  const url = (file as any)[keyUrl];
+  if (typeof base64 === "string" && base64.trim()) {
+    downloadBase64File(base64, filename);
+    return;
+  }
+  if (typeof url === "string" && url.trim()) {
+    downloadUrlFile(url);
+  }
+}
+
 function StatusDot({ color }: { color: string }) {
   return <span className={`h-1.5 w-1.5 rounded-full ${color}`} aria-hidden />;
 }
@@ -723,7 +749,7 @@ export function ResultsPanel({
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={() =>
-                    downloadBase64File(filesV1.inp, "optimized_network_v1.inp")
+                    downloadFile(filesV1, "inp", "optimized_network_v1.inp")
                   }
                   variant="outline"
                   size="sm"
@@ -732,7 +758,7 @@ export function ResultsPanel({
                 </Button>
                 <Button
                   onClick={() =>
-                    downloadBase64File(filesV1.md, "analysis_report_v1.md")
+                    downloadFile(filesV1, "md", "analysis_report_v1.md")
                   }
                   variant="outline"
                   size="sm"
@@ -748,7 +774,7 @@ export function ResultsPanel({
               <div className="flex flex-wrap gap-2">
                 <Button
                   onClick={() =>
-                    downloadBase64File(filesFinal.inp, "optimized_network_final.inp")
+                    downloadFile(filesFinal, "inp", "optimized_network_final.inp")
                   }
                   variant="outline"
                   size="sm"
@@ -757,7 +783,7 @@ export function ResultsPanel({
                 </Button>
                 <Button
                   onClick={() =>
-                    downloadBase64File(filesFinal.md, "analysis_report_final.md")
+                    downloadFile(filesFinal, "md", "analysis_report_final.md")
                   }
                   variant="outline"
                   size="sm"
@@ -777,7 +803,7 @@ export function ResultsPanel({
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() =>
-                  downloadBase64File(filesV1.inp, "optimized_network_v1.inp")
+                  downloadFile(filesV1, "inp", "optimized_network_v1.inp")
                 }
                 variant="outline"
                 size="sm"
@@ -785,7 +811,7 @@ export function ResultsPanel({
                 Unduh File .inp (v1)
               </Button>
               <Button
-                onClick={() => downloadBase64File(filesV1.md, "analysis_report_v1.md")}
+                onClick={() => downloadFile(filesV1, "md", "analysis_report_v1.md")}
                 variant="outline"
                 size="sm"
               >
@@ -797,14 +823,14 @@ export function ResultsPanel({
           /* Kondisi 3 — Semua kriteria terpenuhi */
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => downloadBase64File(filesV1.inp, "optimized_network.inp")}
+              onClick={() => downloadFile(filesV1, "inp", "optimized_network.inp")}
               variant="outline"
               size="sm"
             >
               Unduh File .inp
             </Button>
             <Button
-              onClick={() => downloadBase64File(filesV1.md, "analysis_report.md")}
+              onClick={() => downloadFile(filesV1, "md", "analysis_report.md")}
               variant="outline"
               size="sm"
             >

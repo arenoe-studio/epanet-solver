@@ -75,6 +75,14 @@ export default function UploadPage() {
     return new File([blob], filename, { type: "text/plain" });
   }
 
+  async function urlToFile(url: string, filename: string) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Gagal mengambil file dari riwayat.");
+    const buf = await res.arrayBuffer();
+    const blob = new Blob([buf], { type: "text/plain" });
+    return new File([blob], filename, { type: "text/plain" });
+  }
+
   async function waitForBackendJob(jobId: string, analysisId: number) {
     const aborter = pollAbortRef.current;
     const sleep = (ms: number) =>
@@ -235,6 +243,12 @@ export default function UploadPage() {
       if (history.sourceFileBase64 && history.sourceFileName) {
         try {
           setSelectedFile(base64ToFile(history.sourceFileBase64, history.sourceFileName));
+        } catch {
+          setSelectedFile(null);
+        }
+      } else if (history.sourceFileUrl && history.sourceFileName) {
+        try {
+          setSelectedFile(await urlToFile(history.sourceFileUrl, history.sourceFileName));
         } catch {
           setSelectedFile(null);
         }
