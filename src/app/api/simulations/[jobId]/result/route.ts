@@ -38,55 +38,56 @@ async function fetchJson(res: Response) {
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  const bypassTokens = shouldBypassTokensForEmail(session?.user?.email);
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const bypassTokens = shouldBypassTokensForEmail(session?.user?.email);
 
-  const { jobId } = await ctx.params;
-  const url = new URL(req.url);
-  const analysisIdRaw = url.searchParams.get("analysisId");
-  const analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
-  if (!Number.isFinite(analysisId)) {
-    return NextResponse.json({ error: "Missing analysisId" }, { status: 400 });
-  }
+    const { jobId } = await ctx.params;
+    const url = new URL(req.url);
+    const analysisIdRaw = url.searchParams.get("analysisId");
+    const analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
+    if (!Number.isFinite(analysisId)) {
+      return NextResponse.json({ error: "Missing analysisId" }, { status: 400 });
+    }
 
-  const db = getDb();
+    const db = getDb();
 
-  const analysisRow = await db
-    .select()
-    .from(analyses)
-    .where(and(eq(analyses.id, analysisId), eq(analyses.userId, userId)));
+    const analysisRow = await db
+      .select()
+      .from(analyses)
+      .where(and(eq(analyses.id, analysisId), eq(analyses.userId, userId)));
 
-  const analysis = analysisRow[0];
-  if (!analysis) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+    const analysis = analysisRow[0];
+    if (!analysis) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
-  const base = getBackendBaseUrl(req.url);
-  const backendRes = await fetch(
-    `${base}/v1/simulations/${encodeURIComponent(jobId)}/result`,
-    { method: "GET" }
-  );
+    const base = getBackendBaseUrl(req.url);
+    const backendRes = await fetch(
+      `${base}/v1/simulations/${encodeURIComponent(jobId)}/result`,
+      { method: "GET" }
+    );
 
-  if (backendRes.status === 409) {
-    return NextResponse.json({ error: "Job not finished" }, { status: 409 });
-  }
+    if (backendRes.status === 409) {
+      return NextResponse.json({ error: "Job not finished" }, { status: 409 });
+    }
 
-  if (!backendRes.ok) {
-    const backendJson = await fetchJson(backendRes);
-    const detail =
-      backendJson?.detail ??
-      backendJson?.error ??
-      (backendRes.status === 503
-        ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
-        : "System error");
-    return NextResponse.json({ success: false, error: detail }, { status: backendRes.status });
-  }
+    if (!backendRes.ok) {
+      const backendJson = await fetchJson(backendRes);
+      const detail =
+        backendJson?.detail ??
+        backendJson?.error ??
+        (backendRes.status === 503
+          ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
+          : "System error");
+      return NextResponse.json({ success: false, error: detail }, { status: backendRes.status });
+    }
 
-  const pythonJson = await fetchJson(backendRes);
+    const pythonJson = await fetchJson(backendRes);
 
   const successSchema = z
     .object({
@@ -134,29 +135,29 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     error: z.string().optional()
   });
 
-  const parsedSuccess = successSchema.safeParse(pythonJson);
-  const parsedFail = failSchema.safeParse(pythonJson);
+    const parsedSuccess = successSchema.safeParse(pythonJson);
+    const parsedFail = failSchema.safeParse(pythonJson);
 
-  if (!parsedSuccess.success) {
-    const err = parsedFail.success ? (parsedFail.data.error ?? "System error") : "System error";
-    const status = err === "MAINTENANCE" ? 503 : 500;
-    return NextResponse.json(
-      { success: false, error: status === 503 ? "Solver sedang maintenance." : err },
-      { status }
-    );
-  }
+    if (!parsedSuccess.success) {
+      const err = parsedFail.success ? (parsedFail.data.error ?? "System error") : "System error";
+      const status = err === "MAINTENANCE" ? 503 : 500;
+      return NextResponse.json(
+        { success: false, error: status === 503 ? "Solver sedang maintenance." : err },
+        { status }
+      );
+    }
 
-  const result = parsedSuccess.data;
+    const result = parsedSuccess.data;
 
   // Idempotency: if already marked success, just return the result.
-  if (analysis.status === "success") {
-    return NextResponse.json({ ...result, analysisId });
-  }
+    if (analysis.status === "success") {
+      return NextResponse.json({ ...result, analysisId });
+    }
 
   // Deduct tokens on completion (not when the job is created), unless bypassed.
   const tokenCost = analysis.kind === "fix_pressure" ? FIX_PRESSURE_TOKEN_COST : ANALYSIS_TOKEN_COST;
 
-  if (!bypassTokens) {
+    if (!bypassTokens) {
     const existingBalance = await ensureInitialTokenBalanceRow(db, userId);
     const balance = existingBalance.balance ?? 0;
     if (balance < tokenCost) {
@@ -186,56 +187,60 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     }
   }
 
-  try {
-    await db
-      .update(analyses)
-      .set({
-        status: "success",
-        nodesCount: result.summary.nodes,
-        pipesCount: result.summary.pipes,
-        issuesFound: result.summary.issuesFound,
-        issuesFixed: result.summary.issuesFixed
-      })
-      .where(eq(analyses.id, analysisId));
-  } catch {
-  }
-
-  // Store source file in snapshot if PRV is needed (for history -> fix pressure flow).
-  let sourceFileBase64: string | undefined = undefined;
-  if (analysis.kind !== "fix_pressure" && (result.prv?.needed ?? false)) {
     try {
-      const inpRes = await fetch(
-        `${base}/v1/simulations/${encodeURIComponent(jobId)}/files/input.inp`,
-        { method: "GET" }
-      );
-      if (inpRes.ok) {
-        const buf = Buffer.from(await inpRes.arrayBuffer());
-        sourceFileBase64 = buf.toString("base64");
-      }
+      await db
+        .update(analyses)
+        .set({
+          status: "success",
+          nodesCount: result.summary.nodes,
+          pipesCount: result.summary.pipes,
+          issuesFound: result.summary.issuesFound,
+          issuesFixed: result.summary.issuesFixed
+        })
+        .where(eq(analyses.id, analysisId));
     } catch {
     }
-  }
 
-  try {
-    const payload = {
-      analysisId,
-      fileName: result.summary?.fileName ?? analysis.fileName,
-      sourceFileName: analysis.fileName,
-      sourceFileBase64,
-      summary: result.summary,
-      prv: result.prv,
-      files: result.files,
-      filesV1: (result as any).filesV1,
-      filesFinal: (result as any).filesFinal,
-      nodes: (result as any).nodes,
-      pipes: (result as any).pipes,
-      materials: (result as any).materials,
-      networkInfo: (result as any).networkInfo,
-      backendJobId: jobId
-    };
-    await upsertAnalysisSnapshot(db, analysisId, payload);
-  } catch {
-  }
+  // Store source file in snapshot if PRV is needed (for history -> fix pressure flow).
+    let sourceFileBase64: string | undefined = undefined;
+    if (analysis.kind !== "fix_pressure" && (result.prv?.needed ?? false)) {
+      try {
+        const inpRes = await fetch(
+          `${base}/v1/simulations/${encodeURIComponent(jobId)}/files/input.inp`,
+          { method: "GET" }
+        );
+        if (inpRes.ok) {
+          const buf = Buffer.from(await inpRes.arrayBuffer());
+          sourceFileBase64 = buf.toString("base64");
+        }
+      } catch {
+      }
+    }
 
-  return NextResponse.json({ ...result, analysisId });
+    try {
+      const payload = {
+        analysisId,
+        fileName: result.summary?.fileName ?? analysis.fileName,
+        sourceFileName: analysis.fileName,
+        sourceFileBase64,
+        summary: result.summary,
+        prv: result.prv,
+        files: result.files,
+        filesV1: (result as any).filesV1,
+        filesFinal: (result as any).filesFinal,
+        nodes: (result as any).nodes,
+        pipes: (result as any).pipes,
+        materials: (result as any).materials,
+        networkInfo: (result as any).networkInfo,
+        backendJobId: jobId
+      };
+      await upsertAnalysisSnapshot(db, analysisId, payload);
+    } catch {
+    }
+
+    return NextResponse.json({ ...result, analysisId });
+  } catch (e) {
+    console.error("GET /api/simulations/:jobId/result failed", e);
+    return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+  }
 }
