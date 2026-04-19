@@ -12,6 +12,16 @@ import { analyses, tokenBalances } from "@/lib/db/schema";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
 
+function previewJson(value: unknown, maxChars = 2000) {
+  try {
+    const text = JSON.stringify(value);
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, maxChars)}…`;
+  } catch {
+    return String(value);
+  }
+}
+
 function getBackendBaseUrl(requestUrl: string) {
   const env = process.env.PYTHON_API_URL;
   if (env) {
@@ -176,6 +186,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       if (status === 503) {
         return jsonError("Solver sedang maintenance.", 503, "E_MAINTENANCE");
       }
+
+      console.error(`${traceTag} Backend response shape mismatch`, {
+        jobId,
+        analysisId,
+        userId,
+        zodIssues: parsedSuccess.error.issues,
+        backendJsonPreview: previewJson(pythonJson)
+      });
+
       return jsonError(err, status, "E_BACKEND_FAILURE");
     }
 
