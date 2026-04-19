@@ -22,6 +22,10 @@ type ResultsPanelProps = {
   tokenBalance?: number | null;
 };
 
+function fx(v: unknown, d = 2): string {
+  return typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "—";
+}
+
 function downloadBase64File(base64: string, filename: string) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: "text/plain" });
@@ -262,12 +266,12 @@ export function ResultsPanel({
             { label: "Pipa", value: result.summary.pipes, unit: "pipa" },
             {
               label: "Total Demand",
-              value: networkInfo ? networkInfo.totalDemandLps.toFixed(2) : "—",
+              value: networkInfo ? fx(networkInfo.totalDemandLps, 2) : "—",
               unit: "LPS"
             },
             {
               label: "Head Reservoir",
-              value: networkInfo ? networkInfo.headReservoirM.toFixed(1) : "—",
+              value: networkInfo ? fx(networkInfo.headReservoirM, 1) : "—",
               unit: "m"
             }
           ].map(({ label, value, unit }) => (
@@ -389,8 +393,8 @@ export function ResultsPanel({
                     <TableRow key={n.id}>
                       <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
                       <TableCell>{n.elevation} m</TableCell>
-                      <TableCell>{n.pressureBefore.toFixed(2)} m</TableCell>
-                      <TableCell>{n.pressureAfter.toFixed(2)} m</TableCell>
+                      <TableCell>{fx(n.pressureBefore, 2)} m</TableCell>
+                      <TableCell>{fx(n.pressureAfter, 2)} m</TableCell>
                       <TableCell>
                         <NodeBadge code={n.code} />
                       </TableCell>
@@ -468,16 +472,16 @@ export function ResultsPanel({
                       >
                         <TableCell className="font-medium text-expo-black">{p.id}</TableCell>
                         <TableCell>{p.length} m</TableCell>
-                        <TableCell>{p.diameterBefore.toFixed(1)} mm</TableCell>
+                        <TableCell>{fx(p.diameterBefore, 1)} mm</TableCell>
                         <TableCell
                           className={dChanged ? "font-bold text-expo-black" : undefined}
                         >
-                          {p.diameterAfter.toFixed(1)} mm
+                          {fx(p.diameterAfter, 1)} mm
                         </TableCell>
-                        <TableCell>{p.velocityBefore.toFixed(3)} m/s</TableCell>
-                        <TableCell>{p.velocityAfter.toFixed(3)} m/s</TableCell>
-                        <TableCell>{p.headlossBefore.toFixed(2)} m/km</TableCell>
-                        <TableCell>{p.headlossAfter.toFixed(2)} m/km</TableCell>
+                        <TableCell>{fx(p.velocityBefore, 3)} m/s</TableCell>
+                        <TableCell>{fx(p.velocityAfter, 3)} m/s</TableCell>
+                        <TableCell>{fx(p.headlossBefore, 2)} m/km</TableCell>
+                        <TableCell>{fx(p.headlossAfter, 2)} m/km</TableCell>
                         <TableCell>
                           <PipeBadge code={p.code} />
                         </TableCell>
@@ -523,10 +527,10 @@ export function ResultsPanel({
                 {materials.map((m) => (
                   <TableRow key={m.pipeId}>
                     <TableCell className="whitespace-nowrap font-medium text-expo-black">{m.pipeId}</TableCell>
-                    <TableCell className="whitespace-nowrap">{m.diameterMm.toFixed(1)} mm</TableCell>
+                    <TableCell className="whitespace-nowrap">{fx(m.diameterMm, 1)} mm</TableCell>
                     <TableCell className="whitespace-nowrap">{m.material}</TableCell>
                     <TableCell className="whitespace-nowrap">{m.C}</TableCell>
-                    <TableCell className="whitespace-nowrap">{m.pressureWorkingM.toFixed(2)} m</TableCell>
+                    <TableCell className="whitespace-nowrap">{fx(m.pressureWorkingM, 2)} m</TableCell>
                     <TableCell className="min-w-[180px]">
                       {m.notes.length > 0 ? (
                         <span className="text-xs leading-snug text-orange-700">
@@ -619,7 +623,7 @@ export function ResultsPanel({
                       {prvFixedNodes.map((n) => (
                         <TableRow key={n.id}>
                           <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
-                          <TableCell>{n.pressureAfter.toFixed(2)} m</TableCell>
+                          <TableCell>{fx(n.pressureAfter, 2)} m</TableCell>
                           <TableCell>
                             <NodeBadge code={n.code} />
                           </TableCell>
