@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { randomUUID } from "crypto";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -38,11 +39,18 @@ async function fetchJson(res: Response) {
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
+  const traceId = randomUUID();
+  function jsonWithTrace(body: Record<string, unknown>, init?: ResponseInit) {
+    const headers = new Headers(init?.headers);
+    headers.set("x-trace-id", traceId);
+    return NextResponse.json({ ...body, traceId }, { ...init, headers });
+  }
+
   try {
     const session = await auth();
     const userId = session?.user?.id;
     if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return jsonWithTrace({ error: "Unauthorized" }, { status: 401 });
     }
     const bypassTokens = shouldBypassTokensForEmail(session?.user?.email);
 
@@ -51,7 +59,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     const analysisIdRaw = url.searchParams.get("analysisId");
     const analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
     if (!Number.isFinite(analysisId)) {
-      return NextResponse.json({ error: "Missing analysisId" }, { status: 400 });
+      return jsonWithTrace({ error: "Missing analysisId" }, { status: 400 });
     }
 
     const db = getDb();
@@ -63,7 +71,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
     const analysis = analysisRow[0];
     if (!analysis) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return jsonWithTrace({ error: "Not found" }, { status: 404 });
     }
 
     const base = getBackendBaseUrl(req.url);
@@ -73,7 +81,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     );
 
     if (backendRes.status === 409) {
-      return NextResponse.json({ error: "Job not finished" }, { status: 409 });
+      return jsonWithTrace({ error: "Job not finished" }, { status: 409 });
     }
 
     if (!backendRes.ok) {
@@ -84,16 +92,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         (backendRes.status === 503
           ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
           : "System error");
-      return NextResponse.json({ success: false, error: detail }, { status: backendRes.status });
+      return jsonWithTrace({ success: false, error: detail }, { status: backendRes.status });
     }
 
     const pythonJson = await fetchJson(backendRes);
     if (!pythonJson) {
       console.error("Backend returned empty/invalid JSON", {
+        traceId,
         status: backendRes.status,
         contentType: backendRes.headers.get("content-type")
       });
-      return NextResponse.json({ success: false, error: "Invalid backend response" }, { status: 502 });
+      return jsonWithTrace({ success: false, error: "Invalid backend response" }, { status: 502 });
     }
 
   const successSchema = z
@@ -148,7 +157,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     if (!parsedSuccess.success) {
       const err = parsedFail.success ? (parsedFail.data.error ?? "System error") : "System error";
       const status = err === "MAINTENANCE" ? 503 : 500;
-      return NextResponse.json(
+      return jsonWithTrace(
         { success: false, error: status === 503 ? "Solver sedang maintenance." : err },
         { status }
       );
@@ -184,7 +193,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
   // Idempotency: if already marked success, just return the result.
   if (analysis.status === "success") {
-    return NextResponse.json({
+    return jsonWithTrace({
       success: true,
       analysisId,
       summary: result.summary,
@@ -208,13 +217,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     try {
       existingBalance = await ensureInitialTokenBalanceRow(db, userId);
     } catch (e) {
-      console.error("ensureInitialTokenBalanceRow failed", e);
-      return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+      console.error("ensureInitialTokenBalanceRow failed", { traceId, error: e });
+      return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
     }
     const balance = existingBalance.balance ?? 0;
     if (balance < tokenCost) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return NextResponse.json({ success: false, error: "Insufficient tokens" }, { status: 402 });
+      return jsonWithTrace({ success: false, error: "Insufficient tokens" }, { status: 402 });
     }
 
     let updated: Array<{ balance: number | null }> = [];
@@ -230,12 +239,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         .returning({ balance: tokenBalances.balance });
     } catch {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+      return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
     }
 
     if (updated.length === 0) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return NextResponse.json({ success: false, error: "Insufficient tokens" }, { status: 402 });
+      return jsonWithTrace({ success: false, error: "Insufficient tokens" }, { status: 402 });
     }
   }
 
@@ -277,7 +286,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   } catch {
   }
 
-    return NextResponse.json({
+    return jsonWithTrace({
       success: true,
       analysisId,
       summary: result.summary,
@@ -292,7 +301,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       detailsTruncated
     });
   } catch (e) {
-    console.error("GET /api/simulations/:jobId/result failed", e);
-    return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+    console.error("GET /api/simulations/:jobId/result failed", { traceId, error: e });
+    return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
   }
 }

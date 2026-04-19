@@ -123,8 +123,9 @@ export default function UploadPage() {
         });
         const json = (await res.json()) as any;
         if (!res.ok || !json?.success) {
+          const traceId = json?.traceId ?? res.headers.get("x-trace-id");
           const msg = json?.error ?? "Terjadi kesalahan sistem.";
-          throw new Error(msg);
+          throw new Error(traceId ? `${msg} (Trace: ${traceId})` : msg);
         }
         return json;
       }
@@ -214,7 +215,7 @@ export default function UploadPage() {
       setIsAnalyzing(false);
       void refreshBalance();
       setState("error");
-      push({ title: "Analisis gagal", variant: "error" });
+      push({ title: "Analisis gagal", description: msg, variant: "error" });
     }
   }
 
