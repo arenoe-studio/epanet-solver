@@ -202,7 +202,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
   const result = parsedSuccess.data;
 
-  const MAX_ITEMS = 500;
   const nodesFull = (result as any).nodes;
   const pipesFull = (result as any).pipes;
   const materialsFull = (result as any).materials;
@@ -270,17 +269,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     };
   }
 
-  const nodes = Array.isArray(nodesFull)
-    ? nodesFull.slice(0, MAX_ITEMS).map(normalizeNode)
-    : undefined;
-  const pipes = Array.isArray(pipesFull)
-    ? pipesFull.slice(0, MAX_ITEMS).map(normalizePipe)
-    : undefined;
-  const materials = Array.isArray(materialsFull) ? materialsFull.slice(0, MAX_ITEMS) : undefined;
-  const detailsTruncated =
-    (Array.isArray(nodesFull) && nodesFull.length > MAX_ITEMS) ||
-    (Array.isArray(pipesFull) && pipesFull.length > MAX_ITEMS) ||
-    (Array.isArray(materialsFull) && materialsFull.length > MAX_ITEMS);
+  const nodes = Array.isArray(nodesFull) ? nodesFull.map(normalizeNode) : undefined;
+  const pipes = Array.isArray(pipesFull) ? pipesFull.map(normalizePipe) : undefined;
+  const materials = Array.isArray(materialsFull) ? materialsFull : undefined;
+  const detailsTruncated = false;
 
   const fileBase = `/api/simulations/${encodeURIComponent(jobId)}/files`;
   const filesV1 = {

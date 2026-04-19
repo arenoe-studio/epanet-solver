@@ -11,7 +11,12 @@ from pathlib import Path
 from api.epanet.materials import material_recommendations_for_network
 from api.epanet.network_io import InpValidationError, export_optimized_inp, load_network
 from api.epanet.optimizer import optimize_diameters
-from api.epanet.prv import analyze_prv_recommendations, apply_prvs, fine_tune_prvs
+from api.epanet.prv import (
+    analyze_prv_recommendations,
+    apply_prvs,
+    build_pressure_followup,
+    fine_tune_prvs,
+)
 from api.epanet.reporter import export_markdown_report
 from api.epanet.simulation import evaluate_network, run_simulation
 
@@ -103,11 +108,26 @@ def analyze_inp_bytes(
         final_sim = sim_after
         prv_fix_log: list[dict] | None = None
         prv_tune_log: list[dict] | None = None
+        pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, prv_advice)
 
         if action == "fix_pressure" and prv_advice.get("needed") and prv_advice.get("recommendations"):
             prv_fix_log = apply_prvs(wn_opt, prv_advice["recommendations"])
-            prv_valves = [row.get("prvValve") for row in (prv_fix_log or []) if row.get("prvValve")]
-            prv_tune_log = fine_tune_prvs(wn_opt, [str(v) for v in prv_valves])
+            prv_targets = {
+                str(row["prvValve"]): [
+                    str(nid)
+                    for nid in next(
+                        (
+                            rec.get("coveredNodes") or []
+                            for rec in (prv_advice.get("recommendations") or [])
+                            if str(rec.get("pipeId")) == str(row.get("originalPipe"))
+                        ),
+                        [],
+                    )
+                ]
+                for row in (prv_fix_log or [])
+                if row.get("prvValve")
+            }
+            prv_tune_log = fine_tune_prvs(wn_opt, prv_targets)
 
             # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
             # changed hydraulics. Keep this capped so server requests stay fast.
@@ -135,8 +155,8 @@ def analyze_inp_bytes(
                 snapshots.append(s2)
 
             # After diameters changed again, re-tune PRVs once more (same PRV ids).
-            if prv_valves:
-                prv_tune_log2 = fine_tune_prvs(wn_opt, [str(v) for v in prv_valves])
+            if prv_targets:
+                prv_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
                 if prv_tune_log2:
                     prv_tune_log = (prv_tune_log or []) + [
                         dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
@@ -144,6 +164,7 @@ def analyze_inp_bytes(
 
             final_sim = run_simulation(wn_opt)
             final_eval = evaluate_network(wn_opt, final_sim)
+            pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, prv_advice)
 
             out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
             out_md_final = tmp_dir / f"{uuid.uuid4()}_analysis_report_final.md"
@@ -164,12 +185,13 @@ def analyze_inp_bytes(
                 report_kind="final",
                 prv_fix_log=prv_fix_log,
                 prv_tune_log=prv_tune_log,
+                pressure_followup=pressure_followup,
             )
 
         # --- Build supplementary per-element data (frontend contract) ---
 
         nodes_data: list[dict] = []
-        for nid in wn_opt.junction_name_list:
+        for nid in wn.junction_name_list:
             junction = wn_opt.get_node(nid)
             elev = float(getattr(junction, "elevation", 0.0))
             p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
@@ -276,7 +298,7 @@ def analyze_inp_bytes(
                 "fileName": filename,
                 "action": action,
             },
-            "prv": prv_advice,
+            "prv": {**prv_advice, "postFix": pressure_followup},
             "nodes": nodes_data,
             "pipes": pipes_data,
             "materials": materials_data,

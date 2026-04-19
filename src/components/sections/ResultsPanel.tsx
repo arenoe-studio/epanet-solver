@@ -142,6 +142,7 @@ export function ResultsPanel({
   const filesFinal = result.filesFinal ?? null;
   const prvNeeded = result.prv?.needed ?? false;
   const prvRecs = result.prv?.recommendations ?? [];
+  const postFix = result.prv?.postFix;
   const fixCost = result.prv?.tokenCost ?? FIX_PRESSURE_TOKEN_COST;
 
   const nodes = result.nodes ?? [];
@@ -165,7 +166,9 @@ export function ResultsPanel({
   const hasPHighNodes = nodes.some((n) => n.code === "P-HIGH");
 
   const overallBadge = filesFinal
-    ? { text: "Analisis lengkap", color: "green" as const }
+    ? result.summary.remainingIssues > 0
+      ? { text: "Fix pressure belum tuntas", color: "yellow" as const }
+      : { text: "Analisis lengkap", color: "green" as const }
     : prvNeeded
       ? { text: "Analisis selesai — tekanan perlu ditangani", color: "yellow" as const }
       : { text: "Analisis selesai", color: "green" as const };
@@ -603,14 +606,42 @@ export function ResultsPanel({
           {/* Sub-blok D — After Fix Pressure */}
           {filesFinal ? (
             <div className="space-y-4 p-5">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-green-500" aria-hidden />
-                Fix Pressure selesai
+              <div
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
+                  result.summary.remainingIssues > 0
+                    ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                    : "border-green-200 bg-green-50 text-green-700"
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    result.summary.remainingIssues > 0 ? "bg-yellow-500" : "bg-green-500"
+                  }`}
+                  aria-hidden
+                />
+                {result.summary.remainingIssues > 0 ? "Fix Pressure parsial" : "Fix Pressure selesai"}
               </div>
               <p className="text-sm text-slate-gray">
                 {prvRecs.length} PRV berhasil disisipkan.{" "}
                 {prvFixedNodes.filter((n) => n.code === "P-OK").length} node tekanan sudah OK.
               </p>
+              {postFix && postFix.status !== "resolved" && (
+                <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+                  <div className="text-sm font-semibold text-yellow-900">
+                    Masih ada tekanan yang perlu tindakan lanjutan
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs leading-relaxed text-yellow-900">
+                    <p>
+                      Sisa P-HIGH: {postFix.remainingHighNodes.length} · P-LOW:{" "}
+                      {postFix.remainingLowNodes.length} · P-NEG:{" "}
+                      {postFix.remainingNegativeNodes.length}
+                    </p>
+                    {postFix.recommendations.map((item, index) => (
+                      <p key={`${index}-${item}`}>• {item}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
               {prvFixedNodes.length > 0 && (
                 <div className="overflow-hidden rounded-xl border border-border-lavender">
                   <Table>
@@ -639,6 +670,16 @@ export function ResultsPanel({
                 <p className="text-xs italic text-orange-700">
                   Beberapa pipa di zona PRV perlu evaluasi ulang material setelah tekanan berubah.
                 </p>
+              )}
+              {postFix?.recommendedActions?.some((action) => (action.nodes?.length ?? 0) > 0) && (
+                <div className="space-y-2 text-xs text-slate-gray">
+                  {postFix.recommendedActions.map((action, index) => (
+                    <p key={`${action.type}-${index}`}>
+                      <span className="font-medium text-near-black">{action.message}</span>
+                      {action.nodes && action.nodes.length > 0 ? ` Node: ${action.nodes.join(", ")}.` : ""}
+                    </p>
+                  ))}
+                </div>
               )}
             </div>
           ) : (

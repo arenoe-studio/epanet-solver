@@ -110,7 +110,12 @@ class handler(BaseHTTPRequestHandler):
             from epanet.optimizer import optimize_diameters
             from epanet.reporter import export_markdown_report
             from epanet.materials import material_recommendations_for_network
-            from epanet.prv import analyze_prv_recommendations, apply_prvs, fine_tune_prvs
+            from epanet.prv import (
+                analyze_prv_recommendations,
+                apply_prvs,
+                build_pressure_followup,
+                fine_tune_prvs,
+            )
             from epanet.simulation import run_simulation, evaluate_network
 
             if action not in ("analyze", "fix_pressure"):
@@ -157,11 +162,26 @@ class handler(BaseHTTPRequestHandler):
             prv_tune_log = None
             final_eval = after_eval
             final_sim_results = sim_after
+            pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, prv)
 
             if action == "fix_pressure" and prv.get("needed"):
                 prv_fix_log = apply_prvs(wn_opt, prv.get("recommendations") or [])
-                prv_valves = [row.get("prvValve") for row in (prv_fix_log or []) if row.get("prvValve")]
-                prv_tune_log = fine_tune_prvs(wn_opt, prv_valves)
+                prv_targets = {
+                    str(row["prvValve"]): [
+                        str(nid)
+                        for nid in next(
+                            (
+                                rec.get("coveredNodes") or []
+                                for rec in (prv.get("recommendations") or [])
+                                if str(rec.get("pipeId")) == str(row.get("originalPipe"))
+                            ),
+                            [],
+                        )
+                    ]
+                    for row in (prv_fix_log or [])
+                    if row.get("prvValve")
+                }
+                prv_tune_log = fine_tune_prvs(wn_opt, prv_targets)
 
                 # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
                 # changed hydraulics. Use a fixed budget (not derived from elapsed
@@ -193,8 +213,8 @@ class handler(BaseHTTPRequestHandler):
                     snapshots.append(s2)
 
                 # After diameters changed again, re-tune PRVs once more (same PRV ids).
-                if prv_valves:
-                    prv_tune_log2 = fine_tune_prvs(wn_opt, prv_valves)
+                if prv_targets:
+                    prv_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
                     if prv_tune_log2:
                         prv_tune_log = (prv_tune_log or []) + [
                             dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
@@ -203,6 +223,7 @@ class handler(BaseHTTPRequestHandler):
                 sim_final = run_simulation(wn_opt)
                 final_eval = evaluate_network(wn_opt, sim_final)
                 final_sim_results = sim_final
+                pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, prv)
                 materials_final = material_recommendations_for_network(wn_opt, sim_final)
 
                 out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
@@ -223,12 +244,13 @@ class handler(BaseHTTPRequestHandler):
                     report_kind="final",
                     prv_fix_log=prv_fix_log,
                     prv_tune_log=prv_tune_log,
+                    pressure_followup=pressure_followup,
                 )
 
             # --- Build supplementary per-element data ---
 
             nodes_data = []
-            for nid in wn_opt.junction_name_list:
+            for nid in wn.junction_name_list:
                 junction = wn_opt.get_node(nid)
                 elev = float(getattr(junction, "elevation", 0.0))
                 p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
@@ -329,7 +351,7 @@ class handler(BaseHTTPRequestHandler):
                     "pipes": wn.num_pipes,
                     "fileName": filename,
                 },
-                "prv": prv,
+                "prv": {**prv, "postFix": pressure_followup},
                 "filesV1": {"inp": _b64_file(out_inp_v1), "md": _b64_file(out_md_v1)},
                 "filesFinal": (
                     {"inp": _b64_file(out_inp_final), "md": _b64_file(out_md_final)}

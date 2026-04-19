@@ -146,6 +146,7 @@ def export_markdown_report(
     report_kind: str,
     prv_fix_log: list[dict] | None = None,
     prv_tune_log: list[dict] | None = None,
+    pressure_followup: dict | None = None,
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -314,6 +315,19 @@ def export_markdown_report(
                     "Periksa apakah jaringan butuh PRV tambahan di lokasi dengan elevasi rendah."
                 )
                 md.append("")
+
+        if pressure_followup:
+            md.append("## Evaluasi Lanjutan Tekanan")
+            md.append("")
+            md.append(f"- Status akhir: **{pressure_followup.get('status', 'unknown')}**")
+            md.append(
+                f"- Sisa P-HIGH: **{len(pressure_followup.get('remainingHighNodes') or [])}**, "
+                f"P-LOW: **{len(pressure_followup.get('remainingLowNodes') or [])}**, "
+                f"P-NEG: **{len(pressure_followup.get('remainingNegativeNodes') or [])}**"
+            )
+            for item in pressure_followup.get("recommendations") or []:
+                md.append(f"- {item}")
+            md.append("")
 
     md.append("## Referensi Standar")
     md.append("")

@@ -481,34 +481,66 @@ def _current_setting(valve) -> float:
 
 def fine_tune_prvs(
     wn: wntr.network.WaterNetworkModel,
-    prv_valve_ids: list[str],
+    prv_targets: dict[str, list[str]] | list[str],
 ) -> list[dict]:
     """
     Fine-tune PRV settings to keep real-node pressures within [PMIN, PMAX].
+    If covered nodes per PRV are provided, each PRV is tuned against its own
+    zone so one bad zone does not push every PRV in the same direction.
 
     Termination reasons (recorded in the last row's `status`):
       - OK          : all pressures within window
-      - CONFLICT    : max>PMAX and min<PMIN simultaneously (single-PRV coverage
-                      cannot resolve the elevation gradient)
-      - STAGNANT    : (min_p, max_p) unchanged across an iteration
-      - CLAMPED     : step would lower setting but all valves are already at 0
+      - CONFLICT    : a zone has max>PMAX and min<PMIN simultaneously
+      - STAGNANT    : zone pressures stop changing across an iteration
+      - CLAMPED     : step would lower setting but valve is already at 0
       - MAX_ITER    : iteration budget exhausted
     """
     tune_log: list[dict] = []
-    prev_max: float | None = None
-    prev_min: float | None = None
+    prev_signature: tuple[tuple[str, float, float], ...] | None = None
 
-    def _emit(it: int, step: float, min_p: float, max_p: float, status: str, reason: str) -> None:
+    if isinstance(prv_targets, dict):
+        zone_targets = {
+            str(valve_id): [str(nid) for nid in (node_ids or [])]
+            for valve_id, node_ids in prv_targets.items()
+        }
+    else:
+        zone_targets = {str(valve_id): [] for valve_id in prv_targets}
+
+    def _emit(
+        it: int,
+        valve_id: str,
+        step: float,
+        min_p: float,
+        max_p: float,
+        status: str,
+        reason: str,
+        node_ids: list[str] | None = None,
+    ) -> None:
         tune_log.append(
             {
-                "iter": it,
+                "iter": f"{it}:{valve_id}",
+                "valveId": valve_id,
                 "deltaSettingM": float(step),
                 "minP": float(min_p),
                 "maxP": float(max_p),
                 "status": status,
                 "reason": reason,
+                "coveredNodes": list(node_ids or []),
             }
         )
+
+    def _zone_pressures(ev: dict, node_ids: list[str]) -> list[float]:
+        values: list[float] = []
+        for nid, info in ev["node_status"].items():
+            if str(nid).startswith("J_PRV_"):
+                continue
+            if node_ids and nid not in node_ids:
+                continue
+            try:
+                values.append(float(info["pressure"]))
+            except Exception:
+                continue
+        return values
 
     last_iter = 0
     for it in range(1, PRV_MAX_ITERATIONS + 1):
@@ -516,73 +548,236 @@ def fine_tune_prvs(
         sim = run_simulation(wn)
         ev = evaluate_network(wn, sim)
 
-        # Ignore the synthetic PRV junctions; tune based on "real" nodes.
-        pressures = [
-            float(info["pressure"])
-            for nid, info in ev["node_status"].items()
-            if not str(nid).startswith("J_PRV_")
-        ]
-        max_p = max(pressures, default=0.0)
-        min_p = min(pressures, default=0.0)
+        overall_pressures = _zone_pressures(ev, [])
+        overall_min = min(overall_pressures, default=0.0)
+        overall_max = max(overall_pressures, default=0.0)
 
-        if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
-            _emit(
-                it, 0.0, min_p, max_p, "CONFLICT",
-                "max_p>PMAX dan min_p<PMIN bersamaan; butuh PRV bertingkat.",
-            )
-            return tune_log
-
-        if max_p <= PRESSURE_MAX and min_p >= PRESSURE_MIN:
-            _emit(it, 0.0, min_p, max_p, "OK", "Semua tekanan dalam rentang.")
-            return tune_log
-
-        if max_p > PRESSURE_MAX:
-            delta = -(max_p - PRESSURE_MAX)
-        else:
-            delta = PRESSURE_MIN - min_p
-
-        step = max(-20.0, min(20.0, float(delta)))
-        if abs(step) < 1e-6:
-            _emit(it, step, min_p, max_p, "OK", "Delta di bawah toleransi.")
-            return tune_log
-
-        if prev_max is not None and abs(prev_max - max_p) < 1e-3 and abs(prev_min - min_p) < 1e-3:
-            _emit(
-                it, step, min_p, max_p, "STAGNANT",
-                "Tekanan tidak berubah; setting PRV sudah jenuh.",
-            )
-            return tune_log
-        prev_max, prev_min = max_p, min_p
-
-        # Detect floor clamp: if step negative but all valves already at 0, stop.
-        if step < 0:
-            all_at_floor = True
-            for vid in prv_valve_ids:
-                try:
-                    if _current_setting(wn.get_link(vid)) > 1e-6:
-                        all_at_floor = False
-                        break
-                except Exception:
-                    all_at_floor = False
-                    break
-            if all_at_floor:
-                _emit(
-                    it, step, min_p, max_p, "CLAMPED",
-                    "Semua PRV di 0 m; tidak bisa diturunkan lagi.",
+        zone_metrics: list[tuple[str, list[str], float, float]] = []
+        for valve_id, node_ids in zone_targets.items():
+            pressures = _zone_pressures(ev, node_ids)
+            if not pressures:
+                pressures = overall_pressures
+            zone_metrics.append(
+                (
+                    valve_id,
+                    node_ids,
+                    min(pressures, default=0.0),
+                    max(pressures, default=0.0),
                 )
-                return tune_log
+            )
 
-        for vid in prv_valve_ids:
-            try:
-                valve = wn.get_link(vid)
-                current = _current_setting(valve)
-                new_setting = max(0.0, current + step)
-                if hasattr(valve, "initial_setting"):
-                    valve.initial_setting = new_setting
-            except Exception:
+        signature = tuple((vid, round(min_p, 3), round(max_p, 3)) for vid, _, min_p, max_p in zone_metrics)
+        if prev_signature is not None and signature == prev_signature:
+            for valve_id, node_ids, min_p, max_p in zone_metrics:
+                _emit(
+                    it,
+                    valve_id,
+                    0.0,
+                    min_p,
+                    max_p,
+                    "STAGNANT",
+                    "Tekanan zona tidak berubah; setting PRV sudah jenuh.",
+                    node_ids,
+                )
+            return tune_log
+        prev_signature = signature
+
+        zone_actions: list[tuple[str, list[str], float, float, float, str, str]] = []
+        all_ok = True
+
+        for valve_id, node_ids, min_p, max_p in zone_metrics:
+            if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
+                zone_actions.append(
+                    (
+                        valve_id,
+                        node_ids,
+                        0.0,
+                        min_p,
+                        max_p,
+                        "CONFLICT",
+                        "Zona ini punya P-HIGH dan P-LOW bersamaan; perlu split zone/PRV tambahan.",
+                    )
+                )
+                all_ok = False
                 continue
 
-        _emit(it, step, min_p, max_p, "STEP", "")
+            if max_p <= PRESSURE_MAX and min_p >= PRESSURE_MIN:
+                zone_actions.append(
+                    (
+                        valve_id,
+                        node_ids,
+                        0.0,
+                        min_p,
+                        max_p,
+                        "OK",
+                        "Semua tekanan zona dalam rentang.",
+                    )
+                )
+                continue
 
-    _emit(last_iter, 0.0, prev_min or 0.0, prev_max or 0.0, "MAX_ITER", "Iterasi maksimum tercapai.")
+            all_ok = False
+            delta = -(max_p - PRESSURE_MAX) if max_p > PRESSURE_MAX else (PRESSURE_MIN - min_p)
+            step = max(-10.0, min(10.0, float(delta)))
+
+            if step < 0:
+                try:
+                    if _current_setting(wn.get_link(valve_id)) <= 1e-6:
+                        zone_actions.append(
+                            (
+                                valve_id,
+                                node_ids,
+                                0.0,
+                                min_p,
+                                max_p,
+                                "CLAMPED",
+                                "Setting PRV sudah 0 m; tidak bisa diturunkan lagi.",
+                            )
+                        )
+                        continue
+                except Exception:
+                    pass
+
+            zone_actions.append((valve_id, node_ids, step, min_p, max_p, "STEP", ""))
+
+        if all_ok:
+            for valve_id, node_ids, _, min_p, max_p, _, _ in zone_actions:
+                _emit(
+                    it,
+                    valve_id,
+                    0.0,
+                    min_p,
+                    max_p,
+                    "OK",
+                    "Semua tekanan zona dalam rentang.",
+                    node_ids,
+                )
+            return tune_log
+
+        if any(action[5] in {"CONFLICT", "CLAMPED"} for action in zone_actions) and not any(
+            action[5] == "STEP" for action in zone_actions
+        ):
+            for valve_id, node_ids, step, min_p, max_p, status, reason in zone_actions:
+                _emit(it, valve_id, step, min_p, max_p, status, reason, node_ids)
+            return tune_log
+
+        for valve_id, node_ids, step, min_p, max_p, status, reason in zone_actions:
+            if status == "STEP":
+                try:
+                    valve = wn.get_link(valve_id)
+                    current = _current_setting(valve)
+                    new_setting = max(0.0, current + step)
+                    if hasattr(valve, "initial_setting"):
+                        valve.initial_setting = new_setting
+                except Exception:
+                    status = "ERROR"
+                    reason = "Valve tidak dapat diperbarui."
+                    step = 0.0
+            _emit(it, valve_id, step, min_p, max_p, status, reason, node_ids)
+
+    for valve_id, node_ids in zone_targets.items():
+        _emit(
+            last_iter,
+            valve_id,
+            0.0,
+            overall_min,
+            overall_max,
+            "MAX_ITER",
+            "Iterasi maksimum tercapai.",
+            node_ids,
+        )
     return tune_log
+
+
+def build_pressure_followup(
+    wn: wntr.network.WaterNetworkModel,
+    sim_results: dict,
+    eval_results: dict,
+    prv: dict | None = None,
+) -> dict:
+    node_status = eval_results.get("node_status", {})
+
+    def _collect(code: str) -> list[dict]:
+        rows: list[dict] = []
+        for nid, info in node_status.items():
+            if str(nid).startswith("J_PRV_"):
+                continue
+            if info.get("code") != code:
+                continue
+            rows.append(
+                {
+                    "id": str(nid),
+                    "pressure": float(info.get("pressure", 0.0)),
+                    "elevation": _node_elev(wn, str(nid)),
+                }
+            )
+        rows.sort(key=lambda row: (row["pressure"], row["elevation"], row["id"]))
+        return rows
+
+    high_nodes = _collect("P-HIGH")
+    low_nodes = _collect("P-LOW")
+    neg_nodes = _collect("P-NEG")
+
+    followup_prv = {"recommendations": [], "unresolvedNodes": []}
+    if high_nodes:
+        followup_prv = analyze_prv_recommendations(wn, sim_results, eval_results)
+
+    recommendations: list[str] = []
+    actions: list[dict] = []
+
+    if high_nodes:
+        if followup_prv.get("recommendations"):
+            recommendations.append(
+                "Masih ada P-HIGH setelah fix. Tambahkan PRV bertingkat pada zona yang masih tinggi, bukan menggeser semua PRV bersama-sama."
+            )
+            actions.append(
+                {
+                    "type": "ADD_PRV_STAGE",
+                    "message": "Tambahkan PRV tambahan pada zona tekanan tinggi yang masih tersisa.",
+                    "nodes": [row["id"] for row in high_nodes],
+                    "recommendations": followup_prv.get("recommendations") or [],
+                    "unresolvedNodes": followup_prv.get("unresolvedNodes") or [],
+                }
+            )
+        else:
+            recommendations.append(
+                "Masih ada P-HIGH, tetapi gradien elevasinya belum feasible untuk satu PRV. Bagi jaringan menjadi beberapa band elevasi."
+            )
+
+    if neg_nodes:
+        recommendations.append(
+            "Masih ada tekanan negatif. Kurangi penurunan head di zona PRV terkait, dan evaluasi kebutuhan booster pump atau reservoir antara."
+        )
+        actions.append(
+            {
+                "type": "BOOST_OR_REZONE",
+                "message": "Node tekanan negatif perlu tambahan energi atau pembagian zona lebih pendek.",
+                "nodes": [row["id"] for row in neg_nodes],
+            }
+        )
+    elif low_nodes:
+        recommendations.append(
+            "Masih ada P-LOW. Naikkan setting PRV pada zona terkait secara selektif atau evaluasi lagi headloss lokal menuju node rendah."
+        )
+        actions.append(
+            {
+                "type": "RAISE_PRV_OR_RECHECK_PIPE",
+                "message": "Node tekanan rendah perlu tuning PRV per zona atau evaluasi headloss lokal.",
+                "nodes": [row["id"] for row in low_nodes],
+            }
+        )
+
+    if not recommendations:
+        recommendations.append("Semua tekanan node riil sudah berada dalam rentang 10–80 m.")
+
+    status = "resolved"
+    if high_nodes or low_nodes or neg_nodes:
+        status = "partially_resolved" if prv and prv.get("needed") else "unresolved"
+
+    return {
+        "status": status,
+        "remainingHighNodes": high_nodes,
+        "remainingLowNodes": low_nodes,
+        "remainingNegativeNodes": neg_nodes,
+        "recommendations": recommendations,
+        "recommendedActions": actions,
+    }

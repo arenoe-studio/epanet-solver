@@ -75,6 +75,20 @@ export type AnalysisResult = {
       coveredNodes: string[];
       estimatedPressuresM: Record<string, number>;
     }>;
+    postFix?: {
+      status: "resolved" | "partially_resolved" | "unresolved";
+      remainingHighNodes: Array<{ id: string; pressure: number; elevation: number }>;
+      remainingLowNodes: Array<{ id: string; pressure: number; elevation: number }>;
+      remainingNegativeNodes: Array<{ id: string; pressure: number; elevation: number }>;
+      recommendations: string[];
+      recommendedActions: Array<{
+        type: string;
+        message: string;
+        nodes?: string[];
+        recommendations?: Array<Record<string, unknown>>;
+        unresolvedNodes?: string[];
+      }>;
+    };
   };
   files: {
     inp?: string;
