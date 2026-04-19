@@ -15,6 +15,16 @@ export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
+async function parseBackendBody(res: Response) {
+  const text = await res.text();
+  if (!text) return { text: "", json: null as any };
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    return { text, json: null as any };
+  }
+}
+
 function getBackendBaseUrl(requestUrl: string) {
   const env = process.env.PYTHON_API_URL;
   if (env) {
@@ -95,14 +105,14 @@ export async function POST(req: Request) {
       method: "POST",
       body: pythonFormData
     });
-    const text = await pythonRes.text();
-    const json = text ? JSON.parse(text) : null;
+    const { text, json } = await parseBackendBody(pythonRes);
 
     if (!pythonRes.ok || !json?.id) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
       const msg =
         json?.detail ??
         json?.error ??
+        (text && text.trim()) ??
         (pythonRes.status === 503
           ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
           : "System error");

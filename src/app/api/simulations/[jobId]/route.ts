@@ -6,6 +6,16 @@ import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { analyses } from "@/lib/db/schema";
 
+async function parseBackendBody(res: Response) {
+  const text = await res.text();
+  if (!text) return { text: "", json: null as any };
+  try {
+    return { text, json: JSON.parse(text) };
+  } catch {
+    return { text, json: null as any };
+  }
+}
+
 function getBackendBaseUrl(requestUrl: string) {
   const env = process.env.PYTHON_API_URL;
   if (env) {
@@ -39,8 +49,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     const res = await fetch(`${base}/v1/simulations/${encodeURIComponent(jobId)}`, {
       method: "GET"
     });
-    const text = await res.text();
-    const json = text ? JSON.parse(text) : null;
+    const { text, json } = await parseBackendBody(res);
 
     if (json?.status === "failed" && Number.isFinite(analysisId)) {
       try {
@@ -53,7 +62,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       }
     }
 
-    return NextResponse.json(json, { status: res.status });
+    if (json) {
+      return NextResponse.json(json, { status: res.status });
+    }
+
+    return NextResponse.json(
+      { error: text?.trim() || "Invalid backend response" },
+      { status: res.status }
+    );
   } catch {
     return NextResponse.json({ error: "System error" }, { status: 500 });
   }
