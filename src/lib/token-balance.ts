@@ -19,13 +19,36 @@ export async function ensureInitialTokenBalanceRow(db: Db, userId: string) {
 
   const row = rows[0];
   if (!row) {
-    await db.insert(tokenBalances).values({
-      userId,
-      balance: INITIAL_FREE_TOKENS,
-      totalBought: INITIAL_FREE_TOKENS,
-      totalUsed: 0
-    });
-    return { balance: INITIAL_FREE_TOKENS, totalBought: INITIAL_FREE_TOKENS, totalUsed: 0 };
+    await db
+      .insert(tokenBalances)
+      .values({
+        userId,
+        balance: INITIAL_FREE_TOKENS,
+        totalBought: INITIAL_FREE_TOKENS,
+        totalUsed: 0
+      })
+      .onConflictDoNothing({ target: tokenBalances.userId });
+
+    const insertedRows = await db
+      .select({
+        balance: tokenBalances.balance,
+        totalBought: tokenBalances.totalBought,
+        totalUsed: tokenBalances.totalUsed
+      })
+      .from(tokenBalances)
+      .where(eq(tokenBalances.userId, userId))
+      .limit(1);
+
+    const inserted = insertedRows[0];
+    if (!inserted) {
+      return { balance: INITIAL_FREE_TOKENS, totalBought: INITIAL_FREE_TOKENS, totalUsed: 0 };
+    }
+
+    return {
+      balance: inserted.balance ?? INITIAL_FREE_TOKENS,
+      totalBought: inserted.totalBought ?? INITIAL_FREE_TOKENS,
+      totalUsed: inserted.totalUsed ?? 0
+    };
   }
 
   const balance = row.balance ?? 0;

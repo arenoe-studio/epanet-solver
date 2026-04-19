@@ -88,6 +88,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     }
 
     const pythonJson = await fetchJson(backendRes);
+    if (!pythonJson) {
+      console.error("Backend returned empty/invalid JSON", {
+        status: backendRes.status,
+        contentType: backendRes.headers.get("content-type")
+      });
+      return NextResponse.json({ success: false, error: "Invalid backend response" }, { status: 502 });
+    }
 
   const successSchema = z
     .object({
@@ -197,7 +204,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const tokenCost = analysis.kind === "fix_pressure" ? FIX_PRESSURE_TOKEN_COST : ANALYSIS_TOKEN_COST;
 
     if (!bypassTokens) {
-    const existingBalance = await ensureInitialTokenBalanceRow(db, userId);
+    let existingBalance: { balance: number | null };
+    try {
+      existingBalance = await ensureInitialTokenBalanceRow(db, userId);
+    } catch (e) {
+      console.error("ensureInitialTokenBalanceRow failed", e);
+      return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+    }
     const balance = existingBalance.balance ?? 0;
     if (balance < tokenCost) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
