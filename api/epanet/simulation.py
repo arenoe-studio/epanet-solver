@@ -146,7 +146,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     # silently ignore or approximate some controls/valves, causing PRV installs
     # to have no effect in results.
     simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "epyt").strip().lower()
-    require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "").strip().lower() in (
+    require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "1").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -154,21 +154,36 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         "on",
     )
 
+    if simulator == "wntr" and require_epanet:
+        raise EpanetToolkitUnavailable(
+            "Mode simulator 'wntr' dinonaktifkan karena EPANET Toolkit wajib. "
+            "Set EPANET_SOLVER_REQUIRE_EPANET=0 untuk mengizinkan fallback WNTR."
+        )
+
     if simulator == "epyt":
-        return _run_simulation_epyt(wn)
-    if simulator == "epanet":
+        try:
+            return _run_simulation_epyt(wn)
+        except EpanetToolkitUnavailable:
+            if require_epanet:
+                raise
+            results = wntr.sim.WNTRSimulator(wn).run_sim()
+    elif simulator == "epanet":
         results = wntr.sim.EpanetSimulator(wn).run_sim()
     elif simulator == "wntr":
         results = wntr.sim.WNTRSimulator(wn).run_sim()
     else:
         try:
             return _run_simulation_epyt(wn)
-        except Exception as e:
-            if isinstance(e, EpanetToolkitUnavailable):
+        except EpanetToolkitUnavailable:
+            if require_epanet:
                 raise
-            raise EpanetToolkitUnavailable(
-                "EPANET Toolkit tidak tersedia / gagal dijalankan."
-            ) from e
+            results = wntr.sim.WNTRSimulator(wn).run_sim()
+        except Exception as e:
+            if require_epanet:
+                raise EpanetToolkitUnavailable(
+                    "EPANET Toolkit tidak tersedia / gagal dijalankan."
+                ) from e
+            results = wntr.sim.WNTRSimulator(wn).run_sim()
 
     if results.node["pressure"].empty:
         raise RuntimeError(

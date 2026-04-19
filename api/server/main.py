@@ -90,7 +90,7 @@ async def create_simulation_job(
                 max_iterations=max_iterations,
                 time_budget_s=time_budget_s,
                 work_dir=job_dir,
-                embed_files_base64=True,
+                embed_files_base64=False,
             )
 
             # Normalize output filenames for download endpoints

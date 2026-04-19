@@ -34,13 +34,19 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     # silently ignore or approximate some controls/valves, causing PRV installs
     # to have no effect in results.
     simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "auto").strip().lower()
-    require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "").strip().lower() in (
+    require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "1").strip().lower() in (
         "1",
         "true",
         "yes",
         "y",
         "on",
     )
+
+    if simulator == "wntr" and require_epanet:
+        raise RuntimeError(
+            "Mode simulator 'wntr' dinonaktifkan karena EPANET Toolkit wajib. "
+            "Set EPANET_SOLVER_REQUIRE_EPANET=0 untuk mengizinkan fallback WNTR."
+        )
 
     if simulator == "epanet":
         results = wntr.sim.EpanetSimulator(wn).run_sim()
@@ -53,8 +59,8 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
             if require_epanet:
                 raise RuntimeError(
                     "EPANET toolkit tidak tersedia / gagal dijalankan. "
-                    "Set EPANET_SOLVER_SIMULATOR=wntr untuk memaksa fallback, "
-                    "atau install EPANET toolkit agar EpanetSimulator bisa jalan."
+                    "Install EPANET toolkit agar EpanetSimulator bisa jalan, "
+                    "atau set EPANET_SOLVER_REQUIRE_EPANET=0 untuk mengizinkan fallback WNTR."
                 ) from e
             # Fallback to WNTRSimulator for environments without EPANET toolkit.
             results = wntr.sim.WNTRSimulator(wn).run_sim()

@@ -96,7 +96,7 @@ def analyze_inp_bytes(
             materials=materials_v1,
             prv=prv_advice,
             output_path=out_md_v1,
-            report_kind="analyze",
+            report_kind="v1",
         )
 
         final_eval = after_eval
@@ -108,6 +108,39 @@ def analyze_inp_bytes(
             prv_fix_log = apply_prvs(wn_opt, prv_advice["recommendations"])
             prv_valves = [row.get("prvValve") for row in (prv_fix_log or []) if row.get("prvValve")]
             prv_tune_log = fine_tune_prvs(wn_opt, [str(v) for v in prv_valves])
+
+            # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
+            # changed hydraulics. Keep this capped so server requests stay fast.
+            rerun_budget = max(2.0, min(8.0, float(time_budget_s) * 0.4))
+            rerun_iters = min(10, int(max_iterations))
+
+            wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
+                wn_opt,
+                max_iterations=rerun_iters,
+                time_budget_s=rerun_budget,
+            )
+            wn_opt = wn_opt2
+
+            for pid, ch2 in (diameter_changes2 or {}).items():
+                if pid in diameter_changes:
+                    diameter_changes[pid]["after"] = ch2.get("after")
+                    diameter_changes[pid]["reason"] = ch2.get("reason")
+                    diameter_changes[pid]["category"] = ch2.get("category")
+                else:
+                    diameter_changes[pid] = ch2
+
+            for s in snapshots2 or []:
+                s2 = dict(s)
+                s2["iter"] = f"R2-{s.get('iter')}"
+                snapshots.append(s2)
+
+            # After diameters changed again, re-tune PRVs once more (same PRV ids).
+            if prv_valves:
+                prv_tune_log2 = fine_tune_prvs(wn_opt, [str(v) for v in prv_valves])
+                if prv_tune_log2:
+                    prv_tune_log = (prv_tune_log or []) + [
+                        dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
+                    ]
 
             final_sim = run_simulation(wn_opt)
             final_eval = evaluate_network(wn_opt, final_sim)
@@ -128,55 +161,72 @@ def analyze_inp_bytes(
                 materials=materials_final,
                 prv=prv_advice,
                 output_path=out_md_final,
-                report_kind="fix_pressure",
+                report_kind="final",
                 prv_fix_log=prv_fix_log,
                 prv_tune_log=prv_tune_log,
             )
 
+        # --- Build supplementary per-element data (frontend contract) ---
+
         nodes_data: list[dict] = []
-        for nid in wn.junction_name_list:
-            b = baseline_eval["node_status"].get(nid, {})
-            a = final_eval["node_status"].get(nid, {})
+        for nid in wn_opt.junction_name_list:
+            junction = wn_opt.get_node(nid)
+            elev = float(getattr(junction, "elevation", 0.0))
+            p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
+            p_after = float(final_eval["node_status"].get(nid, {}).get("pressure", 0.0))
+            code = final_eval["node_status"].get(nid, {}).get("code", "P-OK")
             nodes_data.append(
                 {
                     "id": nid,
-                    "pressureBefore": round(float(b.get("pressure", 0.0)), 3),
-                    "pressureAfter": round(float(a.get("pressure", 0.0)), 3),
-                    "codeBefore": b.get("code"),
-                    "codeAfter": a.get("code"),
+                    "elevation": round(elev, 2),
+                    "pressureBefore": round(p_before, 2),
+                    "pressureAfter": round(p_after, 2),
+                    "code": code,
                 }
             )
 
         pipes_data: list[dict] = []
-        for pid in wn.pipe_name_list:
-            b = baseline_eval["pipe_status"].get(pid, {})
-            a = final_eval["pipe_status"].get(pid, {})
-            try:
-                d_before_mm = float(wn.get_link(pid).diameter) * 1000.0
-            except Exception:
-                d_before_mm = 0.0
-            try:
-                d_after_mm = float(getattr(wn_opt.get_link(pid), "diameter", 0.0)) * 1000.0
-            except Exception:
-                # When PRVs are applied, the original pipe is removed/split.
-                d_after_mm = 0.0
+        for pid in wn_opt.pipe_name_list:
+            pipe = wn_opt.get_link(pid)
+            dc = (diameter_changes or {}).get(pid, {})
+            d_before_m = float(dc.get("before") or pipe.diameter)
+            d_after_m = float(dc.get("after") or pipe.diameter)
+            v_before = float(baseline_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+            v_after = float(final_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+            hl_before = float(baseline_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+            hl_after = float(final_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+            composite = final_eval["pipe_status"].get(pid, {}).get("composite", "OK")
             pipes_data.append(
                 {
                     "id": pid,
-                    "velocityBefore": round(float(b.get("velocity", 0.0)), 4),
-                    "velocityAfter": round(float(a.get("velocity", 0.0)), 4),
-                    "headlossBefore": round(float(b.get("headloss", 0.0)), 3),
-                    "headlossAfter": round(float(a.get("headloss", 0.0)), 3),
-                    "diameterBeforeMm": round(d_before_mm, 1),
-                    "diameterAfterMm": round(d_after_mm, 1),
-                    "compositeBefore": b.get("composite"),
-                    "compositeAfter": a.get("composite"),
+                    "length": round(float(getattr(pipe, "length", 0.0)), 1),
+                    "diameterBefore": round(d_before_m * 1000.0, 1),
+                    "diameterAfter": round(d_after_m * 1000.0, 1),
+                    "velocityBefore": round(v_before, 3),
+                    "velocityAfter": round(v_after, 3),
+                    "headlossBefore": round(hl_before, 2),
+                    "headlossAfter": round(hl_after, 2),
+                    "code": composite,
                 }
             )
 
         materials_current = material_recommendations_for_network(wn_opt, final_sim)
+        p_high_nodes = {
+            nid for nid, ns in final_eval["node_status"].items() if ns.get("code") == "P-HIGH"
+        }
         materials_data: list[dict] = []
-        for pid, m in (materials_current or {}).items():
+        for pid in wn_opt.pipe_name_list:
+            m = (materials_current or {}).get(pid)
+            if not m:
+                continue
+            pipe = wn_opt.get_link(pid)
+            in_phigh_zone = (
+                getattr(pipe, "start_node_name", None) in p_high_nodes
+                or getattr(pipe, "end_node_name", None) in p_high_nodes
+            )
+            notes = list(m.get("notes", []))
+            if in_phigh_zone:
+                notes = ["Evaluasi ulang material setelah PRV dipasang"] + notes
             materials_data.append(
                 {
                     "pipeId": pid,
@@ -184,9 +234,33 @@ def analyze_inp_bytes(
                     "material": m.get("material", ""),
                     "C": float(m.get("C", 130)),
                     "pressureWorkingM": round(float(m.get("pressureWorkingM", 0.0)), 2),
-                    "notes": list(m.get("notes", [])),
+                    "notes": notes,
                 }
             )
+
+        total_demand_m3s = 0.0
+        try:
+            for _, j in wn.junctions():
+                try:
+                    total_demand_m3s += float(j.base_demand)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        head_reservoir_m = 0.0
+        try:
+            for _, res in wn.reservoirs():
+                try:
+                    head_reservoir_m = float(res.head_timeseries.base_value)
+                except Exception:
+                    try:
+                        head_reservoir_m = float(res.head)
+                    except Exception:
+                        pass
+                break
+        except Exception:
+            pass
 
         response: dict = {
             "success": True,
@@ -206,6 +280,10 @@ def analyze_inp_bytes(
             "nodes": nodes_data,
             "pipes": pipes_data,
             "materials": materials_data,
+            "networkInfo": {
+                "totalDemandLps": round(total_demand_m3s * 1000.0, 2),
+                "headReservoirM": round(head_reservoir_m, 1),
+            },
             "files": {},
             "filesV1": {"inpPath": str(out_inp_v1), "mdPath": str(out_md_v1)},
             "filesFinal": (
