@@ -15,17 +15,30 @@ from .config import (
     HL_MAX,
 )
 
+class EpanetToolkitUnavailable(RuntimeError):
+    """EPANET Toolkit via EPyT (epyt) is unavailable or failed to run."""
+
 def _run_epyt_on_inp(inp_path: Path) -> dict[str, dict[str, float]]:
     """
     Run EPANET Toolkit via EPyT (epyt) on an .inp file and return raw maps:
       node_pressure, node_head, link_flow, link_velocity, link_headloss
     """
-    from epyt import epanet  # type: ignore
+    try:
+        from epyt import epanet  # type: ignore
+    except Exception as e:
+        raise EpanetToolkitUnavailable(
+            "EPANET Toolkit tidak tersedia (gagal import epyt)."
+        ) from e
 
-    d = epanet(str(inp_path))
-    d.openHydraulicAnalysis()
-    d.initializeHydraulicAnalysis()
-    d.runHydraulicAnalysis()
+    try:
+        d = epanet(str(inp_path))
+        d.openHydraulicAnalysis()
+        d.initializeHydraulicAnalysis()
+        d.runHydraulicAnalysis()
+    except Exception as e:
+        raise EpanetToolkitUnavailable(
+            "EPANET Toolkit gagal dijalankan (epyt)."
+        ) from e
 
     node_ids = list(d.getNodeNameID())
     link_ids = list(d.getLinkNameID())
@@ -36,7 +49,10 @@ def _run_epyt_on_inp(inp_path: Path) -> dict[str, dict[str, float]]:
     velocities = list(d.getLinkVelocity())
     headloss = list(d.getLinkHeadloss())
 
-    d.closeHydraulicAnalysis()
+    try:
+        d.closeHydraulicAnalysis()
+    except Exception:
+        pass
 
     node_pressure = {str(nid): float(p) for nid, p in zip(node_ids, pressures)}
     node_head = {str(nid): float(h) for nid, h in zip(node_ids, heads)}
@@ -69,7 +85,10 @@ def _run_simulation_epyt(wn: wntr.network.WaterNetworkModel) -> dict:
         ) as tmp:
             tmp_path = tmp.name
 
-        wntr.network.write_inpfile(wn, tmp_path)
+        try:
+            wntr.network.write_inpfile(wn, tmp_path)
+        except Exception as e:
+            raise RuntimeError("Gagal mengekspor model ke .inp untuk EPANET Toolkit.") from e
 
         raw = _run_epyt_on_inp(Path(tmp_path))
 
@@ -145,17 +164,11 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         try:
             return _run_simulation_epyt(wn)
         except Exception as e:
-            if require_epanet:
-                raise RuntimeError(
-                    "EPANET toolkit tidak tersedia / gagal dijalankan via EPyT (epyt). "
-                    "Pastikan shared library EPANET tersedia (libepanet.so), atau "
-                    "set EPANET_SOLVER_SIMULATOR=wntr untuk memaksa fallback."
-                ) from e
-            try:
-                results = wntr.sim.EpanetSimulator(wn).run_sim()
-            except Exception:
-                # Fallback to WNTRSimulator for environments without EPANET toolkit.
-                results = wntr.sim.WNTRSimulator(wn).run_sim()
+            if isinstance(e, EpanetToolkitUnavailable):
+                raise
+            raise EpanetToolkitUnavailable(
+                "EPANET Toolkit tidak tersedia / gagal dijalankan."
+            ) from e
 
     if results.node["pressure"].empty:
         raise RuntimeError(

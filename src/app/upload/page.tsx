@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 
@@ -25,6 +25,7 @@ export default function UploadPage() {
   const [isFixingPressure, setIsFixingPressure] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [viewingHistoryId, setViewingHistoryId] = useState<number | null>(null);
+  const pollAbortRef = useRef<AbortController | null>(null);
 
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
@@ -74,6 +75,56 @@ export default function UploadPage() {
     return new File([blob], filename, { type: "text/plain" });
   }
 
+  async function waitForBackendJob(jobId: string, analysisId: number) {
+    const aborter = pollAbortRef.current;
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        const t = setTimeout(() => resolve(), ms);
+        aborter?.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            reject(new Error("aborted"));
+          },
+          { once: true }
+        );
+      });
+
+    while (true) {
+      if (aborter?.signal.aborted) throw new Error("aborted");
+
+      const statusRes = await fetch(`/api/simulations/${jobId}?analysisId=${analysisId}`, {
+        signal: aborter?.signal
+      });
+      const statusJson = (await statusRes.json()) as any;
+
+      if (!statusRes.ok) {
+        throw new Error(statusJson?.error ?? "System error");
+      }
+
+      if (statusJson?.status === "failed") {
+        const err = statusJson?.error === "MAINTENANCE"
+          ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
+          : statusJson?.error ?? "System error";
+        throw new Error(err);
+      }
+
+      if (statusJson?.status === "succeeded") {
+        const res = await fetch(`/api/simulations/${jobId}/result?analysisId=${analysisId}`, {
+          signal: aborter?.signal
+        });
+        const json = (await res.json()) as any;
+        if (!res.ok || !json?.success) {
+          const msg = json?.error ?? "Terjadi kesalahan sistem.";
+          throw new Error(msg);
+        }
+        return json;
+      }
+
+      await sleep(1500);
+    }
+  }
+
   async function runAnalysis() {
     if (!selectedFile) return;
     if (isAnalyzing) return;
@@ -104,7 +155,7 @@ export default function UploadPage() {
         return;
       }
 
-      if (!res.ok || !json?.success) {
+      if (!res.ok || json?.success !== true) {
         const msg = json?.error ?? "Terjadi kesalahan sistem.";
         setErrorMessage(msg);
         setIsAnalyzing(false);
@@ -120,18 +171,28 @@ export default function UploadPage() {
         return;
       }
 
+      const jobId = String(json.jobId || "");
+      const analysisId = Number(json.analysisId);
+      if (!jobId || !Number.isFinite(analysisId)) {
+        throw new Error("System error");
+      }
+
+      pollAbortRef.current?.abort();
+      pollAbortRef.current = new AbortController();
+
+      const done = await waitForBackendJob(jobId, analysisId);
       const nextResult: AnalysisResult = {
-        analysisId: json.analysisId,
-        fileName: json.summary?.fileName ?? selectedFile.name,
-        summary: json.summary,
-        prv: json.prv,
-        files: json.files,
-        filesV1: json.filesV1,
-        filesFinal: json.filesFinal,
-        nodes: json.nodes,
-        pipes: json.pipes,
-        materials: json.materials,
-        networkInfo: json.networkInfo
+        analysisId: done.analysisId,
+        fileName: done.summary?.fileName ?? selectedFile.name,
+        summary: done.summary,
+        prv: done.prv,
+        files: done.files,
+        filesV1: done.filesV1,
+        filesFinal: done.filesFinal,
+        nodes: done.nodes,
+        pipes: done.pipes,
+        materials: done.materials,
+        networkInfo: done.networkInfo
       };
 
       setResult(nextResult);
@@ -139,8 +200,9 @@ export default function UploadPage() {
       void refreshBalance();
       setState("results");
       push({ title: "Analisis selesai", variant: "success" });
-    } catch {
-      setErrorMessage("Terjadi kesalahan sistem.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Terjadi kesalahan sistem.";
+      setErrorMessage(msg);
       setIsAnalyzing(false);
       void refreshBalance();
       setState("error");
@@ -233,7 +295,7 @@ export default function UploadPage() {
         return;
       }
 
-      if (!res.ok || !json?.success) {
+      if (!res.ok || json?.success !== true) {
         const msg = json?.error ?? "Terjadi kesalahan sistem.";
         setErrorMessage(msg);
         setIsFixingPressure(false);
@@ -246,18 +308,28 @@ export default function UploadPage() {
         return;
       }
 
+      const jobId = String(json.jobId || "");
+      const analysisId = Number(json.analysisId);
+      if (!jobId || !Number.isFinite(analysisId)) {
+        throw new Error("System error");
+      }
+
+      pollAbortRef.current?.abort();
+      pollAbortRef.current = new AbortController();
+
+      const done = await waitForBackendJob(jobId, analysisId);
       const updated: AnalysisResult = {
-        analysisId: json.analysisId,
-        fileName: json.summary?.fileName ?? selectedFile.name,
-        summary: json.summary,
-        prv: json.prv,
-        files: json.files,
-        filesV1: json.filesV1,
-        filesFinal: json.filesFinal,
-        nodes: json.nodes,
-        pipes: json.pipes,
-        materials: json.materials,
-        networkInfo: json.networkInfo
+        analysisId: done.analysisId,
+        fileName: done.summary?.fileName ?? selectedFile.name,
+        summary: done.summary,
+        prv: done.prv,
+        files: done.files,
+        filesV1: done.filesV1,
+        filesFinal: done.filesFinal,
+        nodes: done.nodes,
+        pipes: done.pipes,
+        materials: done.materials,
+        networkInfo: done.networkInfo
       };
 
       setResult(updated);
@@ -265,8 +337,9 @@ export default function UploadPage() {
       void refreshBalance();
       setState("results");
       push({ title: "Fix pressure selesai", variant: "success" });
-    } catch {
-      setErrorMessage("Terjadi kesalahan sistem.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Terjadi kesalahan sistem.";
+      setErrorMessage(msg);
       setIsFixingPressure(false);
       void refreshBalance();
       setState("results");
@@ -354,6 +427,7 @@ export default function UploadPage() {
           isDone={!isAnalyzing && !isFixingPressure}
           isError={false}
           onCancel={() => {
+            pollAbortRef.current?.abort();
             setIsAnalyzing(false);
             setIsFixingPressure(false);
             setState(selectedFile ? "file-selected" : "upload");

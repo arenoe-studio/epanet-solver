@@ -13,6 +13,7 @@ from .analysis import InpValidationError, UserError, analyze_inp_bytes
 from .config import get_settings
 from .jobs import JobStore
 
+from api.epanet.simulation import EpanetToolkitUnavailable
 
 settings = get_settings()
 jobs = JobStore(settings.jobs_dir)
@@ -53,6 +54,11 @@ async def analyze(
             embed_files_base64=True,
         )
         return JSONResponse(result)
+    except EpanetToolkitUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="Solver sedang maintenance. Silakan coba lagi beberapa saat.",
+        )
     except (UserError, InpValidationError) as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -84,7 +90,7 @@ async def create_simulation_job(
                 max_iterations=max_iterations,
                 time_budget_s=time_budget_s,
                 work_dir=job_dir,
-                embed_files_base64=False,
+                embed_files_base64=True,
             )
 
             # Normalize output filenames for download endpoints
@@ -95,6 +101,8 @@ async def create_simulation_job(
                 shutil.copyfile(files.report_md_final, job_dir / "report_final.md")
 
             jobs.mark_succeeded(job.id, result)
+        except EpanetToolkitUnavailable:
+            jobs.mark_failed(job.id, "MAINTENANCE")
         except Exception as e:
             jobs.mark_failed(job.id, str(e))
 
