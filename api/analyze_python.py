@@ -15,7 +15,29 @@ class UserError(Exception):
     """File tidak valid — tidak refund token."""
 
 
-MAX_ITERATIONS_SERVERLESS = 15  # keep within typical serverless time limits
+def _env_int(name: str, default: int) -> int:
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return default
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return default
+    try:
+        return float(str(v).strip())
+    except Exception:
+        return default
+
+
+# Keep within typical serverless time limits by default; override on dedicated backends.
+MAX_ITERATIONS_SERVERLESS = _env_int("EPANET_SOLVER_MAX_ITERATIONS", 15)
+OPTIMIZER_TIME_BUDGET_S = _env_float("EPANET_SOLVER_TIME_BUDGET_S", 20.0)
 
 
 # Make bundled epanet package importable
@@ -104,7 +126,7 @@ class handler(BaseHTTPRequestHandler):
             wn_opt, after_eval, diameter_changes, snapshots = optimize_diameters(
                 wn,
                 max_iterations=MAX_ITERATIONS_SERVERLESS,
-                time_budget_s=20.0,
+                time_budget_s=OPTIMIZER_TIME_BUDGET_S,
             )
 
             sim_after = run_simulation(wn_opt)
@@ -142,10 +164,9 @@ class handler(BaseHTTPRequestHandler):
                 prv_tune_log = fine_tune_prvs(wn_opt, prv_valves)
 
                 # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
-                # changed hydraulics. Keep within serverless time limits by using
-                # remaining time from the original 20s budget.
-                remaining = 20.0 - (time.time() - start)
-                rerun_budget = max(3.0, min(12.0, remaining))
+                # changed hydraulics. Use a fixed budget (not derived from elapsed
+                # wall-time) so results are reproducible across runs.
+                rerun_budget = 8.0
                 rerun_iters = min(10, MAX_ITERATIONS_SERVERLESS)
 
                 wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(

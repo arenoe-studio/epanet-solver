@@ -177,5 +177,9 @@ Copy `.env.example` to `.env.local`. Variables are gated by phase:
 | `AUTH_REQUIRE_LOGIN_OTP` | 2+ | Require OTP on login |
 | `AUTH_OTP_TTL_MINUTES` | 2+ | OTP expiry (minutes) |
 | `PYTHON_API_URL` | 3 (local dev) | Points to `scripts/dev_server.py` |
+| `EPANET_SOLVER_MAX_ITERATIONS` | any | Override max optimizer iterations (default 15 in serverless handler) |
+| `EPANET_SOLVER_TIME_BUDGET_S` | any | Override optimizer time budget seconds (default 20) |
+| `EPANET_SOLVER_SIMULATOR` | any | `auto` / `epanet` / `wntr` (force simulator selection) |
+| `EPANET_SOLVER_REQUIRE_EPANET` | any | If `1`, error when EPANET toolkit is unavailable |
 | `MIDTRANS_*` | 4+ | Payment gateway |
 | `UPSTASH_REDIS_*` | 6+ | Rate limiting |

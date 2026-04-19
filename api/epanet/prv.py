@@ -101,9 +101,13 @@ def _feasible_setting(
     if hi_bound + 1e-6 < lo_bound:
         return None, lo_bound, hi_bound
 
+    # PRV setting cannot go below 0 m. If hi_bound < 0 the lowest covered node
+    # would still exceed PMAX even at setting=0 — recommendation is infeasible.
+    if hi_bound < 0.0:
+        return None, lo_bound, hi_bound
+
     target = float(PRV_PRESSURE_TARGET)
     setting = max(lo_bound, min(hi_bound, target))
-    # Never push below 0 (physical floor on PRV setting)
     setting = max(0.0, setting)
     return setting, lo_bound, hi_bound
 

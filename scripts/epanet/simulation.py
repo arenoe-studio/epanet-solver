@@ -4,6 +4,7 @@ simulation.py — Simulasi hidraulik & evaluasi standar Permen PU No. 18/2007
 
 import wntr
 import pandas as pd
+import os
 
 from .config import (
     PRESSURE_MIN, PRESSURE_MAX,
@@ -32,11 +33,31 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     # PRV/valves are accurately supported by EPANET engine. WNTRSimulator can
     # silently ignore or approximate some controls/valves, causing PRV installs
     # to have no effect in results.
-    try:
+    simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "auto").strip().lower()
+    require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    )
+
+    if simulator == "epanet":
         results = wntr.sim.EpanetSimulator(wn).run_sim()
-    except Exception:
-        # Fallback to WNTRSimulator for environments without EPANET toolkit.
+    elif simulator == "wntr":
         results = wntr.sim.WNTRSimulator(wn).run_sim()
+    else:
+        try:
+            results = wntr.sim.EpanetSimulator(wn).run_sim()
+        except Exception as e:
+            if require_epanet:
+                raise RuntimeError(
+                    "EPANET toolkit tidak tersedia / gagal dijalankan. "
+                    "Set EPANET_SOLVER_SIMULATOR=wntr untuk memaksa fallback, "
+                    "atau install EPANET toolkit agar EpanetSimulator bisa jalan."
+                ) from e
+            # Fallback to WNTRSimulator for environments without EPANET toolkit.
+            results = wntr.sim.WNTRSimulator(wn).run_sim()
 
     if results.node["pressure"].empty:
         raise RuntimeError(

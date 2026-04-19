@@ -1,0 +1,16 @@
+.git
+.next
+node_modules
+.npm-cache
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+api/__pycache__
+api/epanet/__pycache__
+scripts/__pycache__
+

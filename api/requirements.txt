@@ -1,3 +1,12 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
+# Engine dependencies (current pipeline uses WNTR; EPANET toolkit is optional via simulator selection)
 wntr==1.4.0
 pandas>=1.5.0
 numpy>=1.23.0
+
+# Target toolkit bindings (self-hosted) — kept optional in code for now
+epyt>=2.0.0
+matplotlib>=3.8.0
