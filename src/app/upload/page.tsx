@@ -124,8 +124,13 @@ export default function UploadPage() {
         const json = (await res.json()) as any;
         if (!res.ok || !json?.success) {
           const traceId = json?.traceId ?? res.headers.get("x-trace-id");
+          const errorCode = json?.errorCode;
           const msg = json?.error ?? "Terjadi kesalahan sistem.";
-          throw new Error(traceId ? `${msg} (Trace: ${traceId})` : msg);
+          const suffixParts = [
+            errorCode ? `Code: ${String(errorCode)}` : null,
+            traceId ? `Trace: ${String(traceId)}` : null
+          ].filter(Boolean);
+          throw new Error(suffixParts.length ? `${msg} (${suffixParts.join(", ")})` : msg);
         }
         return json;
       }

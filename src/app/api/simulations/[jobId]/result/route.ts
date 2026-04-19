@@ -40,24 +40,39 @@ async function fetchJson(res: Response) {
 
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
   const traceId = randomUUID();
+  const traceTag = `[trace:${traceId}]`;
+
   function jsonWithTrace(body: Record<string, unknown>, init?: ResponseInit) {
     const headers = new Headers(init?.headers);
     headers.set("x-trace-id", traceId);
     return NextResponse.json({ ...body, traceId }, { ...init, headers });
   }
 
+  function jsonError(
+    error: string,
+    status: number,
+    errorCode: string,
+    extra?: Record<string, unknown>
+  ) {
+    return jsonWithTrace({ success: false, error, errorCode, ...(extra ?? {}) }, { status });
+  }
+
+  let userId: string | undefined;
+  let jobId: string | undefined;
+  let analysisId: number | undefined;
+
   try {
     const session = await auth();
-    const userId = session?.user?.id;
+    userId = session?.user?.id;
     if (!userId) {
       return jsonWithTrace({ error: "Unauthorized" }, { status: 401 });
     }
     const bypassTokens = shouldBypassTokensForEmail(session?.user?.email);
 
-    const { jobId } = await ctx.params;
+    ({ jobId } = await ctx.params);
     const url = new URL(req.url);
     const analysisIdRaw = url.searchParams.get("analysisId");
-    const analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
+    analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
     if (!Number.isFinite(analysisId)) {
       return jsonWithTrace({ error: "Missing analysisId" }, { status: 400 });
     }
@@ -97,12 +112,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
     const pythonJson = await fetchJson(backendRes);
     if (!pythonJson) {
-      console.error("Backend returned empty/invalid JSON", {
-        traceId,
+      console.error(`${traceTag} Backend returned empty/invalid JSON`, {
+        jobId,
+        analysisId,
         status: backendRes.status,
         contentType: backendRes.headers.get("content-type")
       });
-      return jsonWithTrace({ success: false, error: "Invalid backend response" }, { status: 502 });
+      return jsonError("Invalid backend response", 502, "E_INVALID_BACKEND_JSON");
     }
 
   const successSchema = z
@@ -157,10 +173,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     if (!parsedSuccess.success) {
       const err = parsedFail.success ? (parsedFail.data.error ?? "System error") : "System error";
       const status = err === "MAINTENANCE" ? 503 : 500;
-      return jsonWithTrace(
-        { success: false, error: status === 503 ? "Solver sedang maintenance." : err },
-        { status }
-      );
+      if (status === 503) {
+        return jsonError("Solver sedang maintenance.", 503, "E_MAINTENANCE");
+      }
+      return jsonError(err, status, "E_BACKEND_FAILURE");
     }
 
   const result = parsedSuccess.data;
@@ -217,13 +233,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     try {
       existingBalance = await ensureInitialTokenBalanceRow(db, userId);
     } catch (e) {
-      console.error("ensureInitialTokenBalanceRow failed", { traceId, error: e });
-      return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
+      console.error(`${traceTag} ensureInitialTokenBalanceRow failed`, {
+        jobId,
+        analysisId,
+        userId,
+        error: e
+      });
+      return jsonError("System error", 500, "E_ENSURE_TOKEN_BALANCE");
     }
     const balance = existingBalance.balance ?? 0;
     if (balance < tokenCost) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return jsonWithTrace({ success: false, error: "Insufficient tokens" }, { status: 402 });
+      return jsonError("Insufficient tokens", 402, "E_INSUFFICIENT_TOKENS");
     }
 
     let updated: Array<{ balance: number | null }> = [];
@@ -239,12 +260,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         .returning({ balance: tokenBalances.balance });
     } catch {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
+      return jsonError("System error", 500, "E_TOKEN_DEDUCT_FAILED");
     }
 
     if (updated.length === 0) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-      return jsonWithTrace({ success: false, error: "Insufficient tokens" }, { status: 402 });
+      return jsonError("Insufficient tokens", 402, "E_INSUFFICIENT_TOKENS");
     }
   }
 
@@ -301,7 +322,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       detailsTruncated
     });
   } catch (e) {
-    console.error("GET /api/simulations/:jobId/result failed", { traceId, error: e });
-    return jsonWithTrace({ success: false, error: "System error" }, { status: 500 });
+    console.error(`${traceTag} GET /api/simulations/:jobId/result failed`, {
+      jobId,
+      analysisId,
+      userId,
+      error: e
+    });
+    return jsonError("System error", 500, "E_UNHANDLED");
   }
 }
