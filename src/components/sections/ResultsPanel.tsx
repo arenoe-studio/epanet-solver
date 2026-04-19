@@ -149,6 +149,12 @@ export function ResultsPanel({
   const pipes = result.pipes ?? [];
   const materials = result.materials ?? [];
   const networkInfo = result.networkInfo;
+  const remainingPressureIssues =
+    (postFix?.remainingHighNodes.length ?? 0)
+    + (postFix?.remainingLowNodes.length ?? 0)
+    + (postFix?.remainingNegativeNodes.length ?? 0);
+  const remainingPipeIssues = pipes.filter((p) => p.code !== "OK").length;
+  const isPressureResolved = postFix?.status === "resolved";
 
   const vStatus = useMemo(
     () => (pipes.some((p) => p.code === "V-HIGH" || p.code === "HL-SMALL") ? "warn" : "ok"),
@@ -166,9 +172,11 @@ export function ResultsPanel({
   const hasPHighNodes = nodes.some((n) => n.code === "P-HIGH");
 
   const overallBadge = filesFinal
-    ? result.summary.remainingIssues > 0
-      ? { text: "Fix pressure belum tuntas", color: "yellow" as const }
-      : { text: "Analisis lengkap", color: "green" as const }
+    ? isPressureResolved
+      ? remainingPipeIssues > 0
+        ? { text: "Fix pressure selesai", color: "green" as const }
+        : { text: "Analisis lengkap", color: "green" as const }
+      : { text: "Fix pressure belum tuntas", color: "yellow" as const }
     : prvNeeded
       ? { text: "Analisis selesai — tekanan perlu ditangani", color: "yellow" as const }
       : { text: "Analisis selesai", color: "green" as const };
@@ -335,9 +343,11 @@ export function ResultsPanel({
         {result.summary.remainingIssues > 0 && (
           <p className="text-xs leading-relaxed text-slate-gray">
             <em>
-              Masalah tersisa adalah node dengan tekanan tinggi (P-HIGH). Ini bukan kegagalan
-              optimasi — tekanan tinggi disebabkan perbedaan elevasi dan tidak bisa diselesaikan
-              dengan mengubah diameter. Lihat rekomendasi PRV di bawah.
+              {filesFinal
+                ? isPressureResolved
+                  ? `Fix pressure sudah selesai. Sisa ${result.summary.remainingIssues} masalah berasal dari evaluasi pipa, bukan tekanan node.`
+                  : `Masih ada ${remainingPressureIssues} masalah tekanan yang belum selesai setelah fix pressure. Lihat rekomendasi tindak lanjut di panel PRV.`
+                : "Masalah tersisa adalah node dengan tekanan tinggi (P-HIGH). Ini bukan kegagalan optimasi — tekanan tinggi disebabkan perbedaan elevasi dan tidak bisa diselesaikan dengan mengubah diameter. Lihat rekomendasi PRV di bawah."}
             </em>
           </p>
         )}
@@ -608,23 +618,29 @@ export function ResultsPanel({
             <div className="space-y-4 p-5">
               <div
                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-                  result.summary.remainingIssues > 0
-                    ? "border-yellow-200 bg-yellow-50 text-yellow-700"
-                    : "border-green-200 bg-green-50 text-green-700"
+                  isPressureResolved
+                    ? "border-green-200 bg-green-50 text-green-700"
+                    : "border-yellow-200 bg-yellow-50 text-yellow-700"
                 }`}
               >
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
-                    result.summary.remainingIssues > 0 ? "bg-yellow-500" : "bg-green-500"
+                    isPressureResolved ? "bg-green-500" : "bg-yellow-500"
                   }`}
                   aria-hidden
                 />
-                {result.summary.remainingIssues > 0 ? "Fix Pressure parsial" : "Fix Pressure selesai"}
+                {isPressureResolved ? "Fix Pressure selesai" : "Fix Pressure parsial"}
               </div>
               <p className="text-sm text-slate-gray">
                 {prvRecs.length} PRV berhasil disisipkan.{" "}
                 {prvFixedNodes.filter((n) => n.code === "P-OK").length} node tekanan sudah OK.
               </p>
+              {isPressureResolved && remainingPipeIssues > 0 && (
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-xs leading-relaxed text-green-900">
+                  Tekanan node sudah selesai diperbaiki. Sisa masalah berasal dari evaluasi pipa
+                  seperti V-LOW atau HL-HIGH, jadi ini bukan kegagalan fix pressure.
+                </div>
+              )}
               {postFix && postFix.status !== "resolved" && (
                 <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
                   <div className="text-sm font-semibold text-yellow-900">
