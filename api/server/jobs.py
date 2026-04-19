@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
 import uuid
@@ -22,15 +23,32 @@ class Job:
 
 class JobStore:
     def __init__(self, jobs_dir: str):
-        self._jobs_dir = Path(jobs_dir)
+        self._configured_jobs_dir = Path(jobs_dir)
+        self._jobs_dir = self._configured_jobs_dir
         self._lock = threading.Lock()
         self._jobs: dict[str, Job] = {}
+
+    def _fallback_jobs_dir(self) -> Path:
+        return Path(tempfile.gettempdir()) / "epanet-solver-jobs"
+
+    def _activate_fallback_dir(self) -> None:
+        fallback = self._fallback_jobs_dir()
+        if self._jobs_dir != fallback:
+            print(
+                f"[jobs] fallback jobs dir aktif: {self._jobs_dir} -> {fallback}",
+                flush=True,
+            )
+        self._jobs_dir = fallback
 
     def _job_dir(self, job_id: str) -> Path:
         return self._jobs_dir / job_id
 
     def ensure_dirs(self) -> None:
-        self._jobs_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self._jobs_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self._activate_fallback_dir()
+            self._jobs_dir.mkdir(parents=True, exist_ok=True)
 
     def _meta_path(self, job_id: str) -> Path:
         return self._job_dir(job_id) / "meta.json"
@@ -71,7 +89,12 @@ class JobStore:
         job = Job(id=job_id, status="queued", created_at=time.time())
         with self._lock:
             self._jobs[job_id] = job
-        self._job_dir(job_id).mkdir(parents=True, exist_ok=True)
+        try:
+            self._job_dir(job_id).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            self._activate_fallback_dir()
+            self.ensure_dirs()
+            self._job_dir(job_id).mkdir(parents=True, exist_ok=True)
         self._write_meta(job)
         return job
 

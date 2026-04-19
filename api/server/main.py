@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -73,12 +74,17 @@ async def create_simulation_job(
     max_iterations: int = Form(default=settings.default_max_iterations),
     time_budget_s: float = Form(default=settings.default_time_budget_s),
 ):
-    job = jobs.create()
-    job_dir = Path(settings.jobs_dir) / job.id
-    inp_path = job_dir / "input.inp"
-    raw = await file.read()
-    original_filename = file.filename or "network.inp"
-    inp_path.write_bytes(raw)
+    try:
+        job = jobs.create()
+        job_dir = jobs.job_file(job.id, "input.inp").parent
+        job_dir.mkdir(parents=True, exist_ok=True)
+        inp_path = job_dir / "input.inp"
+        raw = await file.read()
+        original_filename = file.filename or "network.inp"
+        inp_path.write_bytes(raw)
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to create simulation job")
 
     def _run():
         jobs.mark_running(job.id)
@@ -106,7 +112,13 @@ async def create_simulation_job(
         except Exception as e:
             jobs.mark_failed(job.id, str(e))
 
-    executor.submit(_run)
+    try:
+        executor.submit(_run)
+    except Exception:
+        traceback.print_exc()
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
     return {"id": job.id, "status": job.status}
 
 
