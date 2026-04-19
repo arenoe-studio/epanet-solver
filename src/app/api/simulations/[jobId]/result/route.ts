@@ -206,8 +206,76 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const nodesFull = (result as any).nodes;
   const pipesFull = (result as any).pipes;
   const materialsFull = (result as any).materials;
-  const nodes = Array.isArray(nodesFull) ? nodesFull.slice(0, MAX_ITEMS) : undefined;
-  const pipes = Array.isArray(pipesFull) ? pipesFull.slice(0, MAX_ITEMS) : undefined;
+
+  function toNumberOrNaN(value: unknown): number {
+    if (typeof value === "number") return value;
+    if (typeof value === "string" && value.trim()) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : Number.NaN;
+    }
+    return Number.NaN;
+  }
+
+  const allowedNodeCodes = new Set(["P-OK", "P-LOW", "P-HIGH", "P-NEG"]);
+  function normalizeNode(raw: any) {
+    const pressureBefore = toNumberOrNaN(raw?.pressureBefore);
+    const pressureAfter = toNumberOrNaN(raw?.pressureAfter);
+    const elevation = toNumberOrNaN(raw?.elevation);
+
+    let code: string =
+      (typeof raw?.code === "string" && raw.code) ||
+      (typeof raw?.codeAfter === "string" && raw.codeAfter) ||
+      (typeof raw?.codeBefore === "string" && raw.codeBefore) ||
+      "";
+
+    if (!allowedNodeCodes.has(code)) {
+      if (Number.isFinite(pressureAfter)) {
+        if (pressureAfter < 0) code = "P-NEG";
+        else if (pressureAfter < 10) code = "P-LOW";
+        else if (pressureAfter > 80) code = "P-HIGH";
+        else code = "P-OK";
+      } else {
+        code = "P-OK";
+      }
+    }
+
+    return {
+      id: String(raw?.id ?? ""),
+      elevation,
+      pressureBefore,
+      pressureAfter,
+      code
+    };
+  }
+
+  const allowedPipeCodes = new Set(["OK", "V-LOW", "V-HIGH", "HL-HIGH", "HL-SMALL"]);
+  function normalizePipe(raw: any) {
+    let code: string =
+      (typeof raw?.code === "string" && raw.code) ||
+      (typeof raw?.compositeAfter === "string" && raw.compositeAfter) ||
+      (typeof raw?.compositeBefore === "string" && raw.compositeBefore) ||
+      "OK";
+    if (!allowedPipeCodes.has(code)) code = "OK";
+
+    return {
+      id: String(raw?.id ?? ""),
+      length: toNumberOrNaN(raw?.length),
+      diameterBefore: toNumberOrNaN(raw?.diameterBefore ?? raw?.diameterBeforeMm),
+      diameterAfter: toNumberOrNaN(raw?.diameterAfter ?? raw?.diameterAfterMm),
+      velocityBefore: toNumberOrNaN(raw?.velocityBefore),
+      velocityAfter: toNumberOrNaN(raw?.velocityAfter),
+      headlossBefore: toNumberOrNaN(raw?.headlossBefore),
+      headlossAfter: toNumberOrNaN(raw?.headlossAfter),
+      code
+    };
+  }
+
+  const nodes = Array.isArray(nodesFull)
+    ? nodesFull.slice(0, MAX_ITEMS).map(normalizeNode)
+    : undefined;
+  const pipes = Array.isArray(pipesFull)
+    ? pipesFull.slice(0, MAX_ITEMS).map(normalizePipe)
+    : undefined;
   const materials = Array.isArray(materialsFull) ? materialsFull.slice(0, MAX_ITEMS) : undefined;
   const detailsTruncated =
     (Array.isArray(nodesFull) && nodesFull.length > MAX_ITEMS) ||

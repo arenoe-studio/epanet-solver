@@ -67,14 +67,15 @@ function StatusDot({ color }: { color: string }) {
   return <span className={`h-1.5 w-1.5 rounded-full ${color}`} aria-hidden />;
 }
 
-function NodeBadge({ code }: { code: string }) {
+function NodeBadge({ code }: { code?: string }) {
   const map: Record<string, { label: string; dot: string; cls: string }> = {
     "P-OK":  { label: "OK",    dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
     "P-LOW": { label: "P-LOW", dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
     "P-HIGH":{ label: "P-HIGH",dot: "bg-orange-400", cls: "bg-orange-50 text-orange-700 border-orange-200" },
     "P-NEG": { label: "P-NEG", dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" }
   };
-  const entry = map[code] ?? { label: code, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  const safeCode = typeof code === "string" && code.trim() ? code : "—";
+  const entry = map[safeCode] ?? { label: safeCode, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
       <StatusDot color={entry.dot} />
@@ -83,7 +84,7 @@ function NodeBadge({ code }: { code: string }) {
   );
 }
 
-function PipeBadge({ code }: { code: string }) {
+function PipeBadge({ code }: { code?: string }) {
   const map: Record<string, { label: string; dot: string; cls: string }> = {
     "OK":      { label: "OK",          dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
     "V-LOW":   { label: "V-LOW",       dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
@@ -91,7 +92,8 @@ function PipeBadge({ code }: { code: string }) {
     "HL-HIGH": { label: "HL-HIGH",     dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" },
     "HL-SMALL":{ label: "Terlalu Kecil",dot: "bg-red-500",   cls: "bg-red-50 text-red-700 border-red-200" }
   };
-  const entry = map[code] ?? { label: code, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
+  const safeCode = typeof code === "string" && code.trim() ? code : "—";
+  const entry = map[safeCode] ?? { label: safeCode, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
       <StatusDot color={entry.dot} />
@@ -390,9 +392,9 @@ export function ResultsPanel({
                   </TableRow>
                 ) : (
                   filteredNodes.map((n) => (
-                    <TableRow key={n.id}>
-                      <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
-                      <TableCell>{n.elevation} m</TableCell>
+                      <TableRow key={n.id}>
+                        <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
+                      <TableCell>{fx(n.elevation, 2)} m</TableCell>
                       <TableCell>{fx(n.pressureBefore, 2)} m</TableCell>
                       <TableCell>{fx(n.pressureAfter, 2)} m</TableCell>
                       <TableCell>
@@ -466,16 +468,16 @@ export function ResultsPanel({
                   filteredPipes.map((p) => {
                     const dChanged = p.diameterBefore !== p.diameterAfter;
                     return (
-                      <TableRow
-                        key={p.id}
-                        className={dChanged ? "bg-blue-50/40" : undefined}
-                      >
-                        <TableCell className="font-medium text-expo-black">{p.id}</TableCell>
-                        <TableCell>{p.length} m</TableCell>
-                        <TableCell>{fx(p.diameterBefore, 1)} mm</TableCell>
-                        <TableCell
-                          className={dChanged ? "font-bold text-expo-black" : undefined}
+                        <TableRow
+                          key={p.id}
+                          className={dChanged ? "bg-blue-50/40" : undefined}
                         >
+                          <TableCell className="font-medium text-expo-black">{p.id}</TableCell>
+                        <TableCell>{fx(p.length, 1)} m</TableCell>
+                          <TableCell>{fx(p.diameterBefore, 1)} mm</TableCell>
+                          <TableCell
+                            className={dChanged ? "font-bold text-expo-black" : undefined}
+                          >
                           {fx(p.diameterAfter, 1)} mm
                         </TableCell>
                         <TableCell>{fx(p.velocityBefore, 3)} m/s</TableCell>
