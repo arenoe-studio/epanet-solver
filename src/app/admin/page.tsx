@@ -174,11 +174,9 @@ export default async function AdminOverviewPage() {
         ))}
       </div>
 
-      {/* ── Two-column body ── */}
-      <div className="grid gap-4 lg:grid-cols-3">
-
-        {/* Alerts + Hari ini — left 2/3 */}
-        <div className="space-y-4 lg:col-span-2">
+      {/* ── Body ── */}
+      <div className="space-y-4">
+        <div className="space-y-4">
 
           {/* Perlu Aksi */}
           <div className="border border-[#e4e5ea] bg-white">
@@ -265,28 +263,6 @@ export default async function AdminOverviewPage() {
               </div>
             </div>
           )}
-        </div>
-
-        {/* Nav shortcuts — right 1/3 */}
-        <div className="space-y-1">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Navigasi cepat</div>
-          {[
-            { href: "/admin/users",       label: "Users",       sub: `${activeUsers7d[0]?.count ?? 0} aktif 7h` },
-            { href: "/admin/payments",    label: "Payments",    sub: `${paidCount7d} paid 7h` },
-            { href: "/admin/reports",     label: "Laporan",     sub: `${openReportCount} open` },
-            { href: "/admin/ledger",      label: "Token Log",   sub: "audit trail" },
-            { href: "/admin/health",      label: "Health",      sub: stuckCount > 0 ? `${stuckCount} stuck` : "ok" },
-            { href: "/admin/maintenance", label: "Maintenance", sub: "destructive ops" }
-          ].map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="flex items-center justify-between border border-[#e4e5ea] bg-white px-4 py-3 hover:bg-[#f5f5f7]"
-            >
-              <span className="text-sm font-medium text-[#1b1c1f]">{l.label}</span>
-              <span className="text-xs text-[#6b7280]">{l.sub}</span>
-            </Link>
-          ))}
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { and, asc, desc, eq, exists, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { adminAdjustTokens } from "@/app/admin/actions";
 import { FilterBar } from "@/app/admin/users/_components/FilterBar";
@@ -37,15 +37,43 @@ export default async function AdminUsersPage({
   await requireAdmin();
   const sp = await searchParams;
 
-  const q = (Array.isArray(sp.q) ? sp.q[0] : sp.q)?.trim() ?? "";
-  const filter = (Array.isArray(sp.filter) ? sp.filter[0] : sp.filter)?.trim() ?? "";
-  const sort = (Array.isArray(sp.sort) ? sp.sort[0] : sp.sort)?.trim() ?? "created";
-  const dir = (Array.isArray(sp.dir) ? sp.dir[0] : sp.dir)?.trim() ?? "desc";
-  const selectedUserId = (Array.isArray(sp.user) ? sp.user[0] : sp.user)?.trim() ?? "";
+  const q             = (Array.isArray(sp.q)      ? sp.q[0]      : sp.q)?.trim()      ?? "";
+  const filter        = (Array.isArray(sp.filter) ? sp.filter[0] : sp.filter)?.trim() ?? "";
+  const sort          = (Array.isArray(sp.sort)   ? sp.sort[0]   : sp.sort)?.trim()   ?? "created";
+  const dir           = (Array.isArray(sp.dir)    ? sp.dir[0]    : sp.dir)?.trim()    ?? "desc";
+  const selectedUserId = (Array.isArray(sp.user)  ? sp.user[0]   : sp.user)?.trim()   ?? "";
 
   const db = getDb();
 
-  /* ── sub-queries ─────────────────────────────────────────────── */
+  /* ── pre-query for filters that need a subquery ─────────────── */
+  let filterIds: string[] | null = null;
+
+  if (filter === "pending_payment") {
+    const rows = await db
+      .selectDistinct({ userId: transactions.userId })
+      .from(transactions)
+      .where(eq(transactions.status, "pending"));
+    filterIds = rows.map((r) => r.userId).filter((id): id is string => id != null);
+  }
+
+  if (filter === "open_report") {
+    const rows = await db
+      .selectDistinct({ userId: contactMessages.userId })
+      .from(contactMessages)
+      .where(eq(contactMessages.status, "open"));
+    filterIds = rows.map((r) => r.userId).filter((id): id is string => id != null);
+  }
+
+  if (filter === "active_7d") {
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+    const rows = await db
+      .selectDistinct({ userId: analyses.userId })
+      .from(analyses)
+      .where(gte(analyses.createdAt, since7d));
+    filterIds = rows.map((r) => r.userId).filter((id): id is string => id != null);
+  }
+
+  /* ── last-analysis subquery ──────────────────────────────────── */
   const lastAnalysisSq = db
     .select({
       userId: analyses.userId,
@@ -56,49 +84,29 @@ export default async function AdminUsersPage({
     .as("la");
 
   /* ── where conditions ────────────────────────────────────────── */
-  const conditions = [];
+  const conditions: ReturnType<typeof eq>[] = [];
 
   if (q) {
     conditions.push(
-      sql`lower(${users.email}) like ${`%${q.toLowerCase()}%`} or lower(coalesce(${users.name}, '')) like ${`%${q.toLowerCase()}%`}`
+      sql`lower(${users.email}) like ${`%${q.toLowerCase()}%`} or lower(coalesce(${users.name}, '')) like ${`%${q.toLowerCase()}%`}` as ReturnType<typeof eq>
     );
   }
 
   if (filter === "low_token") {
     conditions.push(
-      sql`coalesce(${tokenBalances.balance}, 0) <= 2`
+      sql`coalesce(${tokenBalances.balance}, 0) <= 2` as ReturnType<typeof eq>
     );
   }
+
   if (filter === "unverified") {
-    conditions.push(isNull(users.emailVerified));
-  }
-  if (filter === "pending_payment") {
     conditions.push(
-      exists(
-        db.select({ one: sql`1` })
-          .from(transactions)
-          .where(and(eq(transactions.userId, users.id), eq(transactions.status, "pending")))
-      )
+      sql`${users.emailVerified} is null` as ReturnType<typeof eq>
     );
   }
-  if (filter === "open_report") {
-    conditions.push(
-      exists(
-        db.select({ one: sql`1` })
-          .from(contactMessages)
-          .where(and(eq(contactMessages.userId, users.id), eq(contactMessages.status, "open")))
-      )
-    );
-  }
-  if (filter === "active_7d") {
-    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60_000);
-    conditions.push(
-      exists(
-        db.select({ one: sql`1` })
-          .from(analyses)
-          .where(and(eq(analyses.userId, users.id), gte(analyses.createdAt, since7d)))
-      )
-    );
+
+  /* filterIds: pre-queried user id sets */
+  if (filterIds !== null && filterIds.length > 0) {
+    conditions.push(inArray(users.id, filterIds) as ReturnType<typeof eq>);
   }
 
   /* ── order by ────────────────────────────────────────────────── */
@@ -110,18 +118,21 @@ export default async function AdminUsersPage({
         ? dirFn(tokenBalances.balance)
         : dirFn(users.createdAt);
 
+  /* ── early return: filter exists but no matching ids ─────────── */
+  const noResults = filterIds !== null && filterIds.length === 0;
+
   /* ── main query ──────────────────────────────────────────────── */
-  const rows = await db
+  const rows = noResults ? [] : await db
     .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      emailVerified: users.emailVerified,
-      createdAt: users.createdAt,
-      mfaEnabled: users.mfaEnabled,
-      balance: tokenBalances.balance,
-      totalBought: tokenBalances.totalBought,
-      totalUsed: tokenBalances.totalUsed,
+      id:             users.id,
+      email:          users.email,
+      name:           users.name,
+      emailVerified:  users.emailVerified,
+      createdAt:      users.createdAt,
+      mfaEnabled:     users.mfaEnabled,
+      balance:        tokenBalances.balance,
+      totalBought:    tokenBalances.totalBought,
+      totalUsed:      tokenBalances.totalUsed,
       lastAnalysisAt: lastAnalysisSq.lastAt
     })
     .from(users)
@@ -136,15 +147,15 @@ export default async function AdminUsersPage({
   if (selectedUserId) {
     const panelRows = await db
       .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        emailVerified: users.emailVerified,
-        mfaEnabled: users.mfaEnabled,
+        id:              users.id,
+        email:           users.email,
+        name:            users.name,
+        emailVerified:   users.emailVerified,
+        mfaEnabled:      users.mfaEnabled,
         loginLockedUntil: users.loginLockedUntil,
-        balance: tokenBalances.balance,
-        totalBought: tokenBalances.totalBought,
-        totalUsed: tokenBalances.totalUsed
+        balance:         tokenBalances.balance,
+        totalBought:     tokenBalances.totalBought,
+        totalUsed:       tokenBalances.totalUsed
       })
       .from(users)
       .leftJoin(tokenBalances, eq(tokenBalances.userId, users.id))
@@ -155,11 +166,11 @@ export default async function AdminUsersPage({
     if (pu) {
       const [recentAnalyses, recentTransactions] = await Promise.all([
         db.select({
-          id: analyses.id,
-          kind: analyses.kind,
-          status: analyses.status,
+          id:         analyses.id,
+          kind:       analyses.kind,
+          status:     analyses.status,
           tokensUsed: analyses.tokensUsed,
-          createdAt: analyses.createdAt
+          createdAt:  analyses.createdAt
         })
           .from(analyses)
           .where(eq(analyses.userId, selectedUserId))
@@ -167,14 +178,14 @@ export default async function AdminUsersPage({
           .limit(5),
 
         db.select({
-          id: transactions.id,
-          orderId: transactions.orderId,
-          status: transactions.status,
-          tokens: transactions.tokens,
-          amount: transactions.amount,
+          id:            transactions.id,
+          orderId:       transactions.orderId,
+          status:        transactions.status,
+          tokens:        transactions.tokens,
+          amount:        transactions.amount,
           paymentMethod: transactions.paymentMethod,
-          createdAt: transactions.createdAt,
-          paidAt: transactions.paidAt
+          createdAt:     transactions.createdAt,
+          paidAt:        transactions.paidAt
         })
           .from(transactions)
           .where(eq(transactions.userId, selectedUserId))
@@ -183,15 +194,15 @@ export default async function AdminUsersPage({
       ]);
 
       panelUser = {
-        id: pu.id,
-        email: pu.email,
-        name: pu.name,
-        emailVerified: pu.emailVerified,
-        mfaEnabled: pu.mfaEnabled,
+        id:               pu.id,
+        email:            pu.email,
+        name:             pu.name,
+        emailVerified:    pu.emailVerified,
+        mfaEnabled:       pu.mfaEnabled,
         loginLockedUntil: pu.loginLockedUntil,
-        balance: pu.balance ?? 0,
-        totalBought: pu.totalBought ?? 0,
-        totalUsed: pu.totalUsed ?? 0,
+        balance:          pu.balance ?? 0,
+        totalBought:      pu.totalBought ?? 0,
+        totalUsed:        pu.totalUsed ?? 0,
         recentAnalyses,
         recentTransactions
       };
@@ -207,7 +218,7 @@ export default async function AdminUsersPage({
   const closeHref = `/admin/users${closeParams.toString() ? `?${closeParams.toString()}` : ""}`;
 
   /* ── stats ───────────────────────────────────────────────────── */
-  const totalCount = rows.length;
+  const totalCount    = rows.length;
   const verifiedCount = rows.filter((r) => !!r.emailVerified).length;
   const lowTokenCount = rows.filter((r) => (r.balance ?? 0) <= 2).length;
 
@@ -238,7 +249,7 @@ export default async function AdminUsersPage({
                 href={`/admin/users${filter ? `?filter=${filter}` : ""}`}
                 className="rounded border border-[#e4e5ea] px-2 py-1.5 text-xs text-[#6b7280] hover:bg-[#f5f5f7]"
               >
-                ✕ Reset
+                ✕
               </Link>
             )}
           </form>
@@ -253,29 +264,18 @@ export default async function AdminUsersPage({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
-                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
-                    User
-                  </th>
-                  <th className="w-20 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
-                    Verified
-                  </th>
-                  <th className="w-24 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
-                    Token
-                  </th>
-                  <th className="w-44 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
-                    Aktivitas terakhir
-                  </th>
-                  <th className="w-32 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
-                    Aksi
-                  </th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">User</th>
+                  <th className="w-20 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Verified</th>
+                  <th className="w-24 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Token</th>
+                  <th className="w-44 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Aktivitas terakhir</th>
+                  <th className="w-32 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#e4e5ea]">
                 {rows.map((row) => {
-                  const balance = row.balance ?? 0;
+                  const balance    = row.balance ?? 0;
                   const isSelected = row.id === selectedUserId;
 
-                  /* build href for opening panel */
                   const rowParams = new URLSearchParams();
                   if (q) rowParams.set("q", q);
                   if (filter) rowParams.set("filter", filter);
@@ -293,14 +293,8 @@ export default async function AdminUsersPage({
                         isSelected ? "bg-[#f5f5f7]" : "hover:bg-[#f5f5f7]/60"
                       }`}
                     >
-                      {/* User */}
                       <td className="px-4 py-2.5">
-                        <Link
-                          href={rowHref}
-                          scroll={false}
-                          className="block"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <Link href={rowHref} scroll={false} className="block" onClick={(e) => e.stopPropagation()}>
                           <div className="font-medium text-[#111112]">{row.email}</div>
                           <div className="mt-0.5 text-xs text-[#6b7280]">
                             {row.name ?? "—"} · dibuat {fmt(row.createdAt)}
@@ -308,16 +302,13 @@ export default async function AdminUsersPage({
                         </Link>
                       </td>
 
-                      {/* Verified */}
                       <td className="px-4 py-2.5">
-                        {row.emailVerified ? (
-                          <span className="text-xs font-medium text-green-700">✓</span>
-                        ) : (
-                          <span className="text-xs text-amber-600">—</span>
-                        )}
+                        {row.emailVerified
+                          ? <span className="text-xs font-medium text-green-700">✓</span>
+                          : <span className="text-xs text-amber-600">—</span>
+                        }
                       </td>
 
-                      {/* Balance */}
                       <td className="px-4 py-2.5 text-right">
                         <span className={`text-sm font-semibold ${balance <= 2 ? "text-red-600" : "text-[#111112]"}`}>
                           {balance}
@@ -327,15 +318,12 @@ export default async function AdminUsersPage({
                         </div>
                       </td>
 
-                      {/* Last activity */}
                       <td className="px-4 py-2.5 text-xs text-[#6b7280]">
                         {relativeTime(row.lastAnalysisAt)}
                       </td>
 
-                      {/* Actions */}
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* Quick +5 grant */}
                           <form action={adminAdjustTokens}>
                             <input type="hidden" name="userId" value={row.id} />
                             <input type="hidden" name="kind" value="grant" />
@@ -353,8 +341,6 @@ export default async function AdminUsersPage({
                               +5
                             </button>
                           </form>
-
-                          {/* Open panel */}
                           <Link
                             href={rowHref}
                             scroll={false}
@@ -382,12 +368,15 @@ export default async function AdminUsersPage({
           </div>
 
           <div className="border-t border-[#e4e5ea] px-4 py-2 text-xs text-[#6b7280]">
-            Menampilkan {rows.length} user · Keyboard: <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">j</kbd> <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">k</kbd> navigasi · <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">Enter</kbd> buka detail · <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">/</kbd> cari
+            {rows.length} user ·{" "}
+            <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">j</kbd>{" "}
+            <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">k</kbd> navigasi ·{" "}
+            <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">Enter</kbd> detail ·{" "}
+            <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">/</kbd> cari
           </div>
         </div>
       </div>
 
-      {/* Detail panel (conditionally rendered) */}
       {panelUser && (
         <UserDetailPanel user={panelUser} closeHref={closeHref} />
       )}
