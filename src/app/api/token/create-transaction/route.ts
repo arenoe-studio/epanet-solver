@@ -95,7 +95,7 @@ export async function POST(req: Request) {
   }
 
   // QRIS static: jangan langsung mencatat transaksi sebelum user konfirmasi.
-  const uniqueCode = randomInt(1, 1000); // 1..999
+  const uniqueCode = randomInt(1, 100); // 1..99
   const baseAmount = pkg.amount;
   const amount = baseAmount + uniqueCode;
 

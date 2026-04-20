@@ -12,6 +12,7 @@ export type QrisStaticPaymentData = {
   baseAmount: number;
   uniqueCode: number;
   totalAmount: number;
+  requiresConfirmation: boolean;
   label: string;
   qrImageUrl: string;
 };
@@ -58,7 +59,7 @@ export function QrisStaticPaymentModal({
                   <div className="flex items-center justify-between gap-2">
                     <span>Kode unik</span>
                     <span className="font-mono text-[11px] font-semibold text-near-black">
-                      +{String(data.uniqueCode).padStart(3, "0")}
+                      +{String(data.uniqueCode).padStart(2, "0")}
                     </span>
                   </div>
                 ) : null}
@@ -91,7 +92,9 @@ export function QrisStaticPaymentModal({
               <ol className="list-decimal space-y-1 pl-5">
                 <li>Buka aplikasi e-wallet / m-banking yang mendukung QRIS.</li>
                 <li>Scan QR di atas, lalu masukkan <span className="font-semibold">Total</span> persis (termasuk kode unik).</li>
-                <li>Setelah bayar, klik tombol <span className="font-semibold">Konfirmasi</span> agar pembayaran tercatat.</li>
+                {data.requiresConfirmation ? (
+                  <li>Setelah bayar, klik tombol <span className="font-semibold">Konfirmasi</span> agar pembayaran tercatat.</li>
+                ) : null}
                 <li>Admin akan memverifikasi pembayaran secara manual.</li>
               </ol>
               <p className="text-xs">
@@ -114,21 +117,27 @@ export function QrisStaticPaymentModal({
               >
                 Salin Order ID
               </Button>
-              <Button
-                type="button"
-                disabled={confirming || !onConfirm}
-                onClick={async () => {
-                  if (!data || !onConfirm) return;
-                  setConfirming(true);
-                  try {
-                    await onConfirm(data);
-                  } finally {
-                    setConfirming(false);
-                  }
-                }}
-              >
-                {confirming ? "Mencatat..." : "Konfirmasi Pembayaran"}
-              </Button>
+              {data.requiresConfirmation ? (
+                <Button
+                  type="button"
+                  disabled={confirming || !onConfirm || data.uniqueCode <= 0}
+                  onClick={async () => {
+                    if (!data || !onConfirm) return;
+                    setConfirming(true);
+                    try {
+                      await onConfirm(data);
+                    } finally {
+                      setConfirming(false);
+                    }
+                  }}
+                >
+                  {confirming ? "Mencatat..." : "Konfirmasi Pembayaran"}
+                </Button>
+              ) : (
+                <Button type="button" onClick={() => onOpenChange(false)}>
+                  Tutup
+                </Button>
+              )}
             </div>
           </div>
         ) : (

@@ -1,10 +1,32 @@
-import { normalizeQrisQrImageUrl } from "@/lib/utils";
-
 export type PaymentProvider = "midtrans" | "qris_static";
 
 export function getPaymentProvider(): PaymentProvider {
   const raw = (process.env.PAYMENT_PROVIDER ?? "qris_static").toLowerCase();
   return raw === "midtrans" ? "midtrans" : "qris_static";
+}
+
+function normalizeQrisQrImageUrl(input: string) {
+  const raw = input.trim();
+  if (!raw) return "";
+
+  if (
+    raw.startsWith("data:") ||
+    raw.startsWith("http://") ||
+    raw.startsWith("https://") ||
+    raw.startsWith("/")
+  ) {
+    return raw;
+  }
+
+  if (raw.startsWith("public/")) {
+    return `/${raw.slice("public/".length)}`;
+  }
+
+  if (raw.startsWith("./")) {
+    return `/${raw.slice(2)}`;
+  }
+
+  return `/${raw}`;
 }
 
 export type QrisStaticConfig = {

@@ -1,0 +1,15 @@
+
+> epanet-solver@0.1.0 start
+> next start -p 3106
+
+⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use :::3106
+    at <unknown> (Error: listen EADDRINUSE: address already in use :::3106)
+    at new Promise (<anonymous>) {
+  code: 'EADDRINUSE',
+  errno: -4091,
+  syscall: 'listen',
+  address: '::',
+  port: 3106
+}
+REQUEST_STATUS: 200

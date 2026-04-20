@@ -265,6 +265,7 @@ export function CheckoutClient() {
         baseAmount,
         uniqueCode,
         totalAmount: amount,
+        requiresConfirmation: true,
         label: qris.label ?? "QRIS",
         qrImageUrl: normalizeQrisQrImageUrl(qris.qrImageUrl)
       });
@@ -323,6 +324,7 @@ export function CheckoutClient() {
         baseAmount: tx.baseAmount ?? (tx.amount ?? 0) - (tx.uniqueCode ?? 0),
         uniqueCode: tx.uniqueCode ?? 0,
         totalAmount: tx.amount,
+        requiresConfirmation: false,
         label,
         qrImageUrl
       });

@@ -1,0 +1,24 @@
+
+> epanet-solver@0.1.0 dev
+> next dev -p 3105
+
+▲ Next.js 16.2.4 (Turbopack)
+- Local:         http://localhost:3105
+- Network:       http://100.98.189.78:3105
+- Environments: .env.local
+✓ Ready in 815ms
+Creating turbopack project {
+  dir: 'D:\\04 PROJECTS\\EPANET SOLVER\\epanet-solver',
+  testMode: true
+}
+- Experiments (use with caution):
+  · cpus: 2
+  ✓ workerThreads
+
+(node:16732) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///D:/04%20PROJECTS/EPANET%20SOLVER/epanet-solver/tailwind.config.ts?id=1776714759991 is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to D:\04 PROJECTS\EPANET SOLVER\epanet-solver\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+○ Compiling /checkout ...
+ GET /checkout 200 in 5.5s (next.js: 4.9s, application-code: 562ms)
+✓ Compiled in 127ms

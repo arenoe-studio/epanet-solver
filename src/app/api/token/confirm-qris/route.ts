@@ -31,7 +31,7 @@ const bodySchema = z.object({
     }
     return key;
   }),
-  uniqueCode: z.number().int().min(1).max(999)
+  uniqueCode: z.number().int().min(1).max(99)
 });
 
 export async function POST(req: Request) {
@@ -122,4 +122,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, orderId: body.orderId, amount });
 }
-
