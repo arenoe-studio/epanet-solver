@@ -31,60 +31,56 @@ export async function adminAdjustTokens(formData: FormData) {
   const delta = kind === "revoke" ? -amount : amount;
 
   const db = getDb();
-  await db.transaction(async (dbTx) => {
-    const rows = await dbTx
-      .select({
-        id: tokenBalances.id,
-        balance: tokenBalances.balance,
-        totalBought: tokenBalances.totalBought,
-        totalUsed: tokenBalances.totalUsed
-      })
-      .from(tokenBalances)
-      .where(eq(tokenBalances.userId, userId))
-      .limit(1);
+  const beforeRows = await db
+    .select({
+      balance: tokenBalances.balance,
+      totalBought: tokenBalances.totalBought,
+      totalUsed: tokenBalances.totalUsed
+    })
+    .from(tokenBalances)
+    .where(eq(tokenBalances.userId, userId))
+    .limit(1);
 
-    const existing = rows[0];
-    const beforeBalance = existing?.balance ?? 0;
-    const beforeBought = existing?.totalBought ?? 0;
-    const beforeUsed = existing?.totalUsed ?? 0;
+  const before = beforeRows[0];
+  const beforeBalance = before?.balance ?? 0;
 
-    const afterBalance = Math.max(0, beforeBalance + delta);
-    const afterBought =
-      kind === "grant" ? beforeBought + amount : beforeBought;
-    const afterUsed =
-      kind === "refund"
-        ? Math.max(0, beforeUsed - amount)
-        : beforeUsed;
+  const boughtDelta = kind === "grant" ? amount : 0;
+  const usedDelta = kind === "refund" ? amount : 0;
 
-    if (!existing?.id) {
-      await dbTx.insert(tokenBalances).values({
-        userId,
-        balance: afterBalance,
-        totalBought: afterBought,
-        totalUsed: afterUsed,
-        updatedAt: new Date()
-      });
-    } else {
-      await dbTx
-        .update(tokenBalances)
-        .set({
-          balance: afterBalance,
-          totalBought: afterBought,
-          totalUsed: afterUsed,
-          updatedAt: new Date()
-        })
-        .where(eq(tokenBalances.userId, userId));
-    }
-
-    await dbTx.insert(adminTokenEvents).values({
+  await db
+    .insert(tokenBalances)
+    .values({
       userId,
-      adminEmail,
-      kind,
-      delta,
-      balanceBefore: beforeBalance,
-      balanceAfter: afterBalance,
-      note: note?.trim() ? note.trim() : null
+      balance: Math.max(0, kind === "revoke" ? 0 : amount),
+      totalBought: boughtDelta,
+      totalUsed: 0,
+      updatedAt: new Date()
+    })
+    .onConflictDoUpdate({
+      target: tokenBalances.userId,
+      set: {
+        balance: sql`greatest(0, coalesce(${tokenBalances.balance}, 0) + ${delta})`,
+        totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${boughtDelta}`,
+        totalUsed: sql`greatest(0, coalesce(${tokenBalances.totalUsed}, 0) - ${usedDelta})`,
+        updatedAt: new Date()
+      }
     });
+
+  const afterRows = await db
+    .select({ balance: tokenBalances.balance })
+    .from(tokenBalances)
+    .where(eq(tokenBalances.userId, userId))
+    .limit(1);
+  const afterBalance = afterRows[0]?.balance ?? Math.max(0, beforeBalance + delta);
+
+  await db.insert(adminTokenEvents).values({
+    userId,
+    adminEmail,
+    kind,
+    delta,
+    balanceBefore: beforeBalance,
+    balanceAfter: afterBalance,
+    note: note?.trim() ? note.trim() : null
   });
 
   revalidatePath(`/admin/users/${userId}`);
@@ -111,54 +107,46 @@ export async function adminSetTokens(formData: FormData) {
   const { userId, newBalance, note } = parsed.data;
 
   const db = getDb();
-  await db.transaction(async (dbTx) => {
-    const rows = await dbTx
-      .select({
-        id: tokenBalances.id,
-        balance: tokenBalances.balance,
-        totalBought: tokenBalances.totalBought,
-        totalUsed: tokenBalances.totalUsed
-      })
-      .from(tokenBalances)
-      .where(eq(tokenBalances.userId, userId))
-      .limit(1);
+  const beforeRows = await db
+    .select({
+      balance: tokenBalances.balance,
+      totalBought: tokenBalances.totalBought
+    })
+    .from(tokenBalances)
+    .where(eq(tokenBalances.userId, userId))
+    .limit(1);
 
-    const existing = rows[0];
-    const beforeBalance = existing?.balance ?? 0;
-    const beforeBought = existing?.totalBought ?? 0;
-    const beforeUsed = existing?.totalUsed ?? 0;
-    const delta = newBalance - beforeBalance;
+  const before = beforeRows[0];
+  const beforeBalance = before?.balance ?? 0;
+  const delta = newBalance - beforeBalance;
+  const boughtDelta = delta > 0 ? delta : 0;
 
-    const afterBought = delta > 0 ? beforeBought + delta : beforeBought;
-
-    if (!existing?.id) {
-      await dbTx.insert(tokenBalances).values({
-        userId,
-        balance: newBalance,
-        totalBought: afterBought,
-        totalUsed: beforeUsed,
-        updatedAt: new Date()
-      });
-    } else {
-      await dbTx
-        .update(tokenBalances)
-        .set({
-          balance: newBalance,
-          totalBought: afterBought,
-          updatedAt: new Date()
-        })
-        .where(eq(tokenBalances.userId, userId));
-    }
-
-    await dbTx.insert(adminTokenEvents).values({
+  await db
+    .insert(tokenBalances)
+    .values({
       userId,
-      adminEmail,
-      kind: "set",
-      delta,
-      balanceBefore: beforeBalance,
-      balanceAfter: newBalance,
-      note: note?.trim() ? note.trim() : null
+      balance: newBalance,
+      totalBought: newBalance,
+      totalUsed: 0,
+      updatedAt: new Date()
+    })
+    .onConflictDoUpdate({
+      target: tokenBalances.userId,
+      set: {
+        balance: newBalance,
+        totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${boughtDelta}`,
+        updatedAt: new Date()
+      }
     });
+
+  await db.insert(adminTokenEvents).values({
+    userId,
+    adminEmail,
+    kind: "set",
+    delta,
+    balanceBefore: beforeBalance,
+    balanceAfter: newBalance,
+    note: note?.trim() ? note.trim() : null
   });
 
   revalidatePath(`/admin/users/${userId}`);
@@ -279,40 +267,35 @@ export async function adminUpdateTransaction(formData: FormData) {
     return;
   }
 
-  await db.transaction(async (dbTx) => {
-    await dbTx
-      .update(transactions)
-      .set({
-        status: "paid",
-        paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
-        paidAt: new Date()
-      })
-      .where(eq(transactions.id, transactionId));
+  await db
+    .update(transactions)
+    .set({
+      status: "paid",
+      paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
+      paidAt: new Date()
+    })
+    .where(eq(transactions.id, transactionId));
 
-    await dbTx
-      .update(tokenBalances)
-      .set({
-        balance: sql`${tokenBalances.balance} + ${tx.tokens ?? 0}`,
-        totalBought: sql`${tokenBalances.totalBought} + ${tx.tokens ?? 0}`,
-        updatedAt: new Date()
-      })
-      .where(eq(tokenBalances.userId, userId));
-
-    const updated = await dbTx
-      .select({ id: tokenBalances.id })
-      .from(tokenBalances)
-      .where(eq(tokenBalances.userId, userId))
-      .limit(1);
-    if (updated.length === 0) {
-      await dbTx.insert(tokenBalances).values({
+  const tokensToAdd = tx.tokens ?? 0;
+  if (tokensToAdd > 0) {
+    await db
+      .insert(tokenBalances)
+      .values({
         userId,
-        balance: tx.tokens ?? 0,
-        totalBought: tx.tokens ?? 0,
+        balance: tokensToAdd,
+        totalBought: tokensToAdd,
         totalUsed: 0,
         updatedAt: new Date()
+      })
+      .onConflictDoUpdate({
+        target: tokenBalances.userId,
+        set: {
+          balance: sql`coalesce(${tokenBalances.balance}, 0) + ${tokensToAdd}`,
+          totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${tokensToAdd}`,
+          updatedAt: new Date()
+        }
       });
-    }
-  });
+  }
 
   const userRows = await db
     .select({ email: users.email })

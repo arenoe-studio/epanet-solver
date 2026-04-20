@@ -67,40 +67,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  await db.transaction(async (dbTx) => {
-    await dbTx
-      .update(transactions)
-      .set({
-        status: "paid",
-        paymentMethod: body.payment_type ?? null,
-        paidAt: new Date()
-      })
-      .where(eq(transactions.orderId, body.order_id));
+  await db
+    .update(transactions)
+    .set({
+      status: "paid",
+      paymentMethod: body.payment_type ?? null,
+      paidAt: new Date()
+    })
+    .where(eq(transactions.orderId, body.order_id));
 
-    await dbTx
-      .update(tokenBalances)
-      .set({
-        balance: sql`${tokenBalances.balance} + ${tx.tokens ?? 0}`,
-        totalBought: sql`${tokenBalances.totalBought} + ${tx.tokens ?? 0}`
+  const tokensToAdd = tx.tokens ?? 0;
+  if (tx.userId && tokensToAdd > 0) {
+    await db
+      .insert(tokenBalances)
+      .values({
+        userId: tx.userId,
+        balance: tokensToAdd,
+        totalBought: tokensToAdd,
+        totalUsed: 0,
+        updatedAt: new Date()
       })
-      .where(eq(tokenBalances.userId, tx.userId ?? ""));
-
-    if (tx.userId) {
-      const updated = await dbTx
-        .select({ id: tokenBalances.id })
-        .from(tokenBalances)
-        .where(eq(tokenBalances.userId, tx.userId))
-        .limit(1);
-      if (updated.length === 0) {
-        await dbTx.insert(tokenBalances).values({
-          userId: tx.userId,
-          balance: tx.tokens ?? 0,
-          totalBought: tx.tokens ?? 0,
-          totalUsed: 0
-        });
-      }
-    }
-  });
+      .onConflictDoUpdate({
+        target: tokenBalances.userId,
+        set: {
+          balance: sql`coalesce(${tokenBalances.balance}, 0) + ${tokensToAdd}`,
+          totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${tokensToAdd}`,
+          updatedAt: new Date()
+        }
+      });
+  }
 
   if (tx.userId && tx.tokens && tx.amount) {
     const userRow = await db
