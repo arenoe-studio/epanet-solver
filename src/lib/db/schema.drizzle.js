@@ -146,6 +146,8 @@ const transactions = pgTable(
     orderId: text("order_id").notNull(),
     package: text("package"),
     tokens: integer("tokens"),
+    baseAmount: integer("base_amount"),
+    uniqueCode: integer("unique_code"),
     amount: integer("amount"),
     status: text("status"),
     paymentMethod: text("payment_method"),

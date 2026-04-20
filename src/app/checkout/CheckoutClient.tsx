@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/providers/ToastProvider";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { formatIdr } from "@/lib/utils";
+import { formatIdr, normalizeQrisQrImageUrl } from "@/lib/utils";
 import {
   TOKEN_PACKAGES_LIST,
   getTokenPackage,
@@ -196,20 +196,24 @@ export function CheckoutClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ package: pkgKey })
       });
-      const json = (await res.json()) as
-        | {
-            provider?: "midtrans";
-            snapToken?: string;
-            orderId?: string;
-            error?: string;
-          }
-        | {
-            provider?: "qris_static";
-            orderId?: string;
-            qris?: { qrImageUrl: string; label: string };
-            amount?: number;
-            error?: string;
-          };
+       const json = (await res.json()) as
+         | {
+             provider?: "midtrans";
+             snapToken?: string;
+             orderId?: string;
+             error?: string;
+           }
+         | {
+             provider?: "qris_static";
+             orderId?: string;
+             qris?: { qrImageUrl: string; label: string };
+             baseAmount?: number;
+             uniqueCode?: number;
+             amount?: number;
+             tokens?: number;
+             package?: string;
+             error?: string;
+           };
 
       if (!res.ok || !json || (json as { error?: string }).error) {
         push({
@@ -239,8 +243,12 @@ export function CheckoutClient() {
 
       const orderId = (json as { orderId?: string }).orderId;
       const qris = (json as { qris?: { qrImageUrl: string; label: string } }).qris;
+      const baseAmount = (json as { baseAmount?: number }).baseAmount;
+      const uniqueCode = (json as { uniqueCode?: number }).uniqueCode;
       const amount = (json as { amount?: number }).amount;
-      if (!orderId || !qris?.qrImageUrl || !amount) {
+      const tokens = (json as { tokens?: number }).tokens;
+      const pkg = (json as { package?: string }).package;
+      if (!orderId || !qris?.qrImageUrl || !baseAmount || !uniqueCode || !amount || !pkg) {
         push({
           title: "Gagal memulai pembayaran",
           description: "Data QRIS tidak lengkap.",
@@ -252,13 +260,17 @@ export function CheckoutClient() {
 
       setQrisPayment({
         orderId,
-        amount,
+        package: pkg,
+        tokens: tokens ?? 0,
+        baseAmount,
+        uniqueCode,
+        totalAmount: amount,
         label: qris.label ?? "QRIS",
-        qrImageUrl: qris.qrImageUrl
+        qrImageUrl: normalizeQrisQrImageUrl(qris.qrImageUrl)
       });
       push({
         title: "Scan QRIS untuk bayar",
-        description: "Setelah bayar, pembayaran akan diverifikasi admin.",
+        description: "Setelah bayar, klik Konfirmasi agar pembayaran tercatat.",
         variant: "info"
       });
       setBusyPackage(null);
@@ -284,7 +296,9 @@ export function CheckoutClient() {
     }
 
     if (isQrisStatic(tx)) {
-      const qrImageUrl = process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL ?? "";
+      const qrImageUrl = normalizeQrisQrImageUrl(
+        process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL ?? ""
+      );
       const label = process.env.NEXT_PUBLIC_QRIS_STATIC_LABEL ?? "QRIS";
       if (!qrImageUrl) {
         push({
@@ -304,7 +318,11 @@ export function CheckoutClient() {
       }
       setQrisPayment({
         orderId: tx.orderId,
-        amount: tx.amount,
+        package: tx.package ?? pkgKey,
+        tokens: tx.tokens ?? 0,
+        baseAmount: tx.baseAmount ?? (tx.amount ?? 0) - (tx.uniqueCode ?? 0),
+        uniqueCode: tx.uniqueCode ?? 0,
+        totalAmount: tx.amount,
         label,
         qrImageUrl
       });
@@ -537,6 +555,42 @@ export function CheckoutClient() {
           if (!open) setQrisPayment(null);
         }}
         data={qrisPayment}
+        onConfirm={async (data) => {
+          try {
+            const res = await fetch("/api/token/confirm-qris", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: data.orderId,
+                package: data.package,
+                uniqueCode: data.uniqueCode
+              })
+            });
+            const json = (await res.json()) as { ok?: boolean; error?: string };
+            if (!res.ok || json?.error) {
+              push({
+                title: "Gagal konfirmasi pembayaran",
+                description: json?.error ?? "Coba lagi dalam beberapa saat.",
+                variant: "error"
+              });
+              return;
+            }
+
+            push({
+              title: "Pembayaran tercatat",
+              description: "Menunggu verifikasi admin.",
+              variant: "success"
+            });
+            setQrisPayment(null);
+            void mutateTransactions();
+          } catch {
+            push({
+              title: "Gagal konfirmasi pembayaran",
+              description: "Coba lagi dalam beberapa saat.",
+              variant: "error"
+            });
+          }
+        }}
       />
     </div>
   );

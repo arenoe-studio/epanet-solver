@@ -1,3 +1,5 @@
+import { normalizeQrisQrImageUrl } from "@/lib/utils";
+
 export type PaymentProvider = "midtrans" | "qris_static";
 
 export function getPaymentProvider(): PaymentProvider {
@@ -11,7 +13,9 @@ export type QrisStaticConfig = {
 };
 
 export function getQrisStaticConfig(): QrisStaticConfig | null {
-  const qrImageUrl = process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL?.trim();
+  const qrImageUrlRaw = process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL?.trim();
+  if (!qrImageUrlRaw) return null;
+  const qrImageUrl = normalizeQrisQrImageUrl(qrImageUrlRaw);
   if (!qrImageUrl) return null;
   const label =
     process.env.NEXT_PUBLIC_QRIS_STATIC_LABEL?.trim() || "QRIS";
@@ -22,4 +26,3 @@ export function getPaymentAdminEmail(): string | null {
   const to = process.env.PAYMENT_ADMIN_EMAIL?.trim();
   return to ? to : null;
 }
-

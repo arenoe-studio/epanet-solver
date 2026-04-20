@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { randomInt } from "crypto";
 import { z } from "zod";
 
 import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
 import { getSnap } from "@/lib/midtrans";
-import { getPaymentAdminEmail, getPaymentProvider, getQrisStaticConfig } from "@/lib/payment";
+import { getPaymentProvider, getQrisStaticConfig } from "@/lib/payment";
 import { rateLimitCreateTransaction } from "@/lib/ratelimit";
-import { sendAdminPendingPaymentEmail } from "@/lib/resend";
 import {
   TOKEN_PACKAGES,
   resolveTokenPackageKey,
@@ -94,35 +94,18 @@ export async function POST(req: Request) {
     );
   }
 
-  await db.insert(transactions).values({
-    userId,
-    orderId,
-    package: pkgKey,
-    tokens: pkg.tokens,
-    amount: pkg.amount,
-    status: "pending",
-    paymentMethod: "qris_static"
-  });
-
-  const adminEmail = getPaymentAdminEmail();
-  if (adminEmail) {
-    void sendAdminPendingPaymentEmail({
-      to: adminEmail,
-      userEmail: session.user?.email ?? "",
-      userName: session.user?.name ?? "",
-      orderId,
-      amount: pkg.amount,
-      tokens: pkg.tokens,
-      packageKey: pkgKey,
-      packageName: pkg.name
-    });
-  }
+  // QRIS static: jangan langsung mencatat transaksi sebelum user konfirmasi.
+  const uniqueCode = randomInt(1, 1000); // 1..999
+  const baseAmount = pkg.amount;
+  const amount = baseAmount + uniqueCode;
 
   return NextResponse.json({
     provider,
     orderId,
     qris,
-    amount: pkg.amount,
+    baseAmount,
+    uniqueCode,
+    amount,
     tokens: pkg.tokens,
     package: pkgKey
   });

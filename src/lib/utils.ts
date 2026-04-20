@@ -11,3 +11,27 @@ export function formatIdr(amount: number) {
     maximumFractionDigits: 0
   }).format(amount);
 }
+
+export function normalizeQrisQrImageUrl(input: string) {
+  const raw = input.trim();
+  if (!raw) return "";
+
+  if (
+    raw.startsWith("data:") ||
+    raw.startsWith("http://") ||
+    raw.startsWith("https://") ||
+    raw.startsWith("/")
+  ) {
+    return raw;
+  }
+
+  if (raw.startsWith("public/")) {
+    return `/${raw.slice("public/".length)}`;
+  }
+
+  if (raw.startsWith("./")) {
+    return `/${raw.slice(2)}`;
+  }
+
+  return `/${raw}`;
+}

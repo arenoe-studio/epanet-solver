@@ -22,6 +22,8 @@ export async function GET() {
       orderId: transactions.orderId,
       package: transactions.package,
       tokens: transactions.tokens,
+      baseAmount: transactions.baseAmount,
+      uniqueCode: transactions.uniqueCode,
       amount: transactions.amount,
       status: transactions.status,
       paymentMethod: transactions.paymentMethod,

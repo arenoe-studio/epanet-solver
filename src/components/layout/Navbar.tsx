@@ -28,9 +28,8 @@ export function Navbar() {
 
   const { balance: tokenBalance } = useTokenBalance(isLoggedIn);
 
-  if (isAdminArea) return null;
-
   useEffect(() => {
+    if (isAdminArea) return;
     if (!isHomePage) {
       setScrolled(true);
       return;
@@ -39,18 +38,20 @@ export function Navbar() {
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [isHomePage]);
+  }, [isAdminArea, isHomePage]);
 
   useEffect(() => {
+    if (isAdminArea) return;
     function onOpenBuy() {
       setBuyOpen(true);
       setProfileOpen(false);
     }
     window.addEventListener(UI_EVENT_OPEN_BUY_TOKEN, onOpenBuy);
     return () => window.removeEventListener(UI_EVENT_OPEN_BUY_TOKEN, onOpenBuy);
-  }, []);
+  }, [isAdminArea]);
 
   useEffect(() => {
+    if (isAdminArea) return;
     function onPointerDown(e: PointerEvent) {
       if (!profileOpen) return;
       const target = e.target as Node | null;
@@ -71,7 +72,7 @@ export function Navbar() {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [profileOpen]);
+  }, [isAdminArea, profileOpen]);
 
   const initials = useMemo(() => {
     if (!user?.name) return "U";
@@ -98,6 +99,8 @@ export function Navbar() {
       { href: "/docs", label: "Dokumentasi", external: false },
     ];
   }, [isLoggedIn]);
+
+  if (isAdminArea) return null;
 
   return (
     <header
