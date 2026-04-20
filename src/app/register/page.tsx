@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
+import { PasswordRequirements, isPasswordValid } from "@/components/auth/PasswordRequirements";
 import type { AuthActionResponse } from "@/types/auth";
 
 type RegisterPrefill = {
@@ -92,7 +93,7 @@ export default function RegisterPage() {
           Daftar
         </h1>
         <p className="mt-2 text-sm text-slate-gray">
-          Password minimal 12 karakter. Setelah daftar, verifikasi email dulu.
+          Setelah daftar, verifikasi email dulu.
         </p>
 
         <div className="mt-6 space-y-4">
@@ -128,14 +129,16 @@ export default function RegisterPage() {
               type="password"
               autoComplete="new-password"
               className="mt-1 h-11 w-full rounded-xl border border-border-lavender px-4 text-sm outline-none focus:ring-2 focus:ring-expo-black/10"
-              placeholder="Minimal 12 karakter"
+              placeholder="Masukkan password"
             />
           </label>
+
+          {password.length > 0 && <PasswordRequirements password={password} />}
 
           <button
             type="button"
             onClick={onRegister}
-            disabled={loading || !email || !password}
+            disabled={loading || !email || !password || !isPasswordValid(password)}
             className="inline-flex h-11 w-full items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
           >
             {loading ? "Membuat akun..." : "Buat Akun"}
@@ -152,3 +155,5 @@ export default function RegisterPage() {
     </main>
   );
 }
+
+

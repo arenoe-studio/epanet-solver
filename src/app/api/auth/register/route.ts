@@ -16,10 +16,27 @@ import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 
 export const dynamic = "force-dynamic";
 
+const passwordSchema = z
+  .string()
+  .min(8, "Password minimal 8 karakter")
+  .max(256, "Password maksimal 256 karakter")
+  .refine((pwd) => /[A-Z]/.test(pwd), {
+    message: "Password harus mengandung huruf besar (A-Z)"
+  })
+  .refine((pwd) => /[a-z]/.test(pwd), {
+    message: "Password harus mengandung huruf kecil (a-z)"
+  })
+  .refine((pwd) => /[0-9]/.test(pwd), {
+    message: "Password harus mengandung angka (0-9)"
+  })
+  .refine((pwd) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd), {
+    message: "Password harus mengandung simbol (!@#$%^&* dll)"
+  });
+
 const bodySchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   email: z.string().trim().email(),
-  password: z.string().min(12).max(256)
+  password: passwordSchema
 });
 
 export async function POST(request: Request) {
@@ -51,7 +68,11 @@ export async function POST(request: Request) {
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid input" }, { status: 422 });
+    const errorMessages = parsed.error.issues.map((issue) => issue.message);
+    return NextResponse.json(
+      { error: errorMessages[0] ?? "Input tidak valid" },
+      { status: 422 }
+    );
   }
 
   const email = parsed.data.email.toLowerCase();
@@ -124,3 +145,4 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, emailSent });
 }
+
