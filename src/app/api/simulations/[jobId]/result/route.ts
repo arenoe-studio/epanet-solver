@@ -272,6 +272,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       : null;
   const files = filesFinal ?? filesV1;
 
+  // NOTE: Download sekarang melalui `/api/analyses/:analysisId/export` agar:
+  // - ada pricing token per format
+  // - nama file konsisten (berdasarkan nama asli + kode/tanggal)
+  // - jobId tidak diekspos ke client (mengurangi bypass/download liar)
+  const publicFilesV1: Record<string, never> = {};
+  const publicFilesFinal = filesFinal ? ({} as Record<string, never>) : null;
+  const publicFiles = publicFilesFinal ?? publicFilesV1;
+
   // Idempotency: if already marked success, just return the result.
   if (analysis.status === "success") {
     return jsonWithTrace({
@@ -279,9 +287,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       analysisId,
       summary: result.summary,
       prv: result.prv,
-      files,
-      filesV1,
-      filesFinal,
+      files: publicFiles,
+      filesV1: publicFilesV1,
+      filesFinal: publicFilesFinal,
       nodes,
       pipes,
       materials,
@@ -377,9 +385,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       analysisId,
       summary: result.summary,
       prv: result.prv,
-      files,
-      filesV1,
-      filesFinal,
+      files: publicFiles,
+      filesV1: publicFilesV1,
+      filesFinal: publicFilesFinal,
       nodes,
       pipes,
       materials,

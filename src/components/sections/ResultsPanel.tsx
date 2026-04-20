@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
+import {
+  ANALYSIS_TOKEN_COST,
+  DOWNLOAD_EXCEL_TOKEN_COST,
+  DOWNLOAD_INP_TOKEN_COST,
+  FIX_PRESSURE_TOKEN_COST
+} from "@/lib/token-constants";
 import {
   Table,
   TableBody,
@@ -11,6 +16,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
+import { openBuyTokenModal } from "@/lib/ui-events";
 import type { AnalysisResult } from "@/types";
 
 type ResultsPanelProps = {
@@ -45,22 +51,11 @@ function downloadUrlFile(url: string) {
   a.click();
 }
 
-function downloadFile(
-  file: { inp?: string; md?: string; inpUrl?: string; mdUrl?: string },
-  kind: "inp" | "md",
-  filename: string
-) {
-  const key = kind === "inp" ? "inp" : "md";
-  const keyUrl = kind === "inp" ? "inpUrl" : "mdUrl";
-  const base64 = (file as any)[key];
-  const url = (file as any)[keyUrl];
-  if (typeof base64 === "string" && base64.trim()) {
-    downloadBase64File(base64, filename);
-    return;
-  }
-  if (typeof url === "string" && url.trim()) {
-    downloadUrlFile(url);
-  }
+function parseFilenameFromContentDisposition(headerValue: string | null) {
+  if (!headerValue) return null;
+  const m = /filename\\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i.exec(headerValue);
+  const raw = decodeURIComponent((m?.[1] ?? m?.[2] ?? "").trim());
+  return raw || null;
 }
 
 function StatusDot({ color }: { color: string }) {
@@ -137,6 +132,8 @@ export function ResultsPanel({
   const [nodeFilter, setNodeFilter] = useState<"all" | "issues" | "ok">("all");
   const [pipeFilter, setPipeFilter] = useState<"all" | "changed" | "issues" | "ok">("all");
   const [materialAccordionOpen, setMaterialAccordionOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const filesV1 = result.filesV1 ?? result.files;
   const filesFinal = result.filesFinal ?? null;
@@ -144,6 +141,57 @@ export function ResultsPanel({
   const prvRecs = result.prv?.recommendations ?? [];
   const postFix = result.prv?.postFix;
   const fixCost = result.prv?.tokenCost ?? FIX_PRESSURE_TOKEN_COST;
+
+  async function downloadExport(
+    format: "inp" | "pdf" | "excel",
+    variant?: "v1" | "final"
+  ) {
+    const key = `${format}:${variant ?? "auto"}`;
+    setExportBusy(key);
+    setExportError(null);
+
+    try {
+      const qs = new URLSearchParams({ format });
+      if (variant) qs.set("variant", variant);
+
+      const res = await fetch(`/api/analyses/${result.analysisId}/export?${qs.toString()}`, {
+        method: "POST"
+      });
+
+      if (!res.ok) {
+        let msg = "Gagal mengunduh file.";
+        try {
+          const json = await res.json();
+          msg = json?.error ?? msg;
+        } catch {
+          // ignore
+        }
+
+        if (res.status === 402) {
+          openBuyTokenModal();
+        }
+
+        setExportError(msg);
+        return;
+      }
+
+      const filename =
+        parseFilenameFromContentDisposition(res.headers.get("content-disposition")) ??
+        `epanet-export.${format === "excel" ? "xls" : format}`;
+
+      const blob = await res.blob();
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = dlUrl;
+      a.download = filename;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(dlUrl), 1000);
+    } catch {
+      setExportError("System error saat mengunduh file.");
+    } finally {
+      setExportBusy(null);
+    }
+  }
 
   const nodes = result.nodes ?? [];
   const pipes = result.pipes ?? [];
@@ -787,7 +835,7 @@ export function ResultsPanel({
                     <span className="font-medium text-near-black">
                       pasang PRV manual di EPANET
                     </span>{" "}
-                    — panduan langkah demi langkah tersedia di file laporan .md.
+                    — panduan langkah demi langkah tersedia di file laporan .pdf.
                   </p>
                 </div>
               </div>
@@ -811,22 +859,21 @@ export function ResultsPanel({
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() =>
-                    downloadFile(filesV1, "inp", "optimized_network_v1.inp")
-                  }
+                  onClick={() => downloadExport("inp", "v1")}
                   variant="outline"
                   size="sm"
                 >
-                  Unduh File .inp (v1)
+                  Unduh .inp (v1) — {DOWNLOAD_INP_TOKEN_COST} token
                 </Button>
                 <Button
-                  onClick={() =>
-                    downloadFile(filesV1, "md", "analysis_report_v1.md")
-                  }
+                  onClick={() => downloadExport("pdf", "v1")}
                   variant="outline"
                   size="sm"
                 >
-                  Unduh Laporan .md (v1)
+                  Unduh .pdf (v1) — free token
+                </Button>
+                <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
+                  Unduh Excel (v1) — {DOWNLOAD_EXCEL_TOKEN_COST} token
                 </Button>
               </div>
             </div>
@@ -836,22 +883,21 @@ export function ResultsPanel({
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  onClick={() =>
-                    downloadFile(filesFinal, "inp", "optimized_network_final.inp")
-                  }
+                  onClick={() => downloadExport("inp", "final")}
                   variant="outline"
                   size="sm"
                 >
-                  Unduh File .inp (final)
+                  Unduh .inp (final) — {DOWNLOAD_INP_TOKEN_COST} token
                 </Button>
                 <Button
-                  onClick={() =>
-                    downloadFile(filesFinal, "md", "analysis_report_final.md")
-                  }
+                  onClick={() => downloadExport("pdf", "final")}
                   variant="outline"
                   size="sm"
                 >
-                  Unduh Laporan .md (final)
+                  Unduh .pdf (final) — free token
+                </Button>
+                <Button onClick={() => downloadExport("excel", "final")} variant="outline" size="sm">
+                  Unduh Excel (final) — {DOWNLOAD_EXCEL_TOKEN_COST} token
                 </Button>
               </div>
             </div>
@@ -866,19 +912,22 @@ export function ResultsPanel({
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() =>
-                  downloadFile(filesV1, "inp", "optimized_network_v1.inp")
+                  downloadExport("inp", "v1")
                 }
                 variant="outline"
                 size="sm"
               >
-                Unduh File .inp (v1)
+                Unduh .inp (v1) — {DOWNLOAD_INP_TOKEN_COST} token
               </Button>
               <Button
-                onClick={() => downloadFile(filesV1, "md", "analysis_report_v1.md")}
+                onClick={() => downloadExport("pdf", "v1")}
                 variant="outline"
                 size="sm"
               >
-                Unduh Laporan .md (v1)
+                Unduh .pdf (v1) — free token
+              </Button>
+              <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
+                Unduh Excel (v1) — {DOWNLOAD_EXCEL_TOKEN_COST} token
               </Button>
             </div>
           </div>
@@ -886,19 +935,28 @@ export function ResultsPanel({
           /* Kondisi 3 — Semua kriteria terpenuhi */
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => downloadFile(filesV1, "inp", "optimized_network.inp")}
+              onClick={() => downloadExport("inp", "v1")}
               variant="outline"
               size="sm"
             >
-              Unduh File .inp
+              Unduh .inp — {DOWNLOAD_INP_TOKEN_COST} token
             </Button>
             <Button
-              onClick={() => downloadFile(filesV1, "md", "analysis_report.md")}
+              onClick={() => downloadExport("pdf", "v1")}
               variant="outline"
               size="sm"
             >
-              Unduh Laporan .md
+              Unduh .pdf — free token
             </Button>
+            <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
+              Unduh Excel — {DOWNLOAD_EXCEL_TOKEN_COST} token
+            </Button>
+          </div>
+        )}
+
+        {(exportBusy || exportError) && (
+          <div className="rounded-xl border border-border-lavender bg-soft-lilac px-3 py-2 text-xs text-expo-black">
+            {exportBusy ? "Menyiapkan file untuk diunduh…" : exportError}
           </div>
         )}
 
