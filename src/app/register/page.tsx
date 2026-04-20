@@ -42,7 +42,12 @@ export default function RegisterPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: name || undefined, email, password })
       });
-      const json = (await res.json()) as AuthActionResponse;
+      let json: AuthActionResponse | null = null;
+      try {
+        json = (await res.json()) as AuthActionResponse;
+      } catch {
+        json = null;
+      }
       if (!res.ok) {
         push({
           title: "Gagal daftar",
@@ -53,12 +58,26 @@ export default function RegisterPage() {
         return;
       }
 
-      push({
-        title: "Akun dibuat",
-        description: "Kami mengirim kode verifikasi ke email Anda.",
-        variant: "success"
-      });
-      router.push(`/verify?email=${encodeURIComponent(email)}&sent=1`);
+      const emailSent = json?.emailSent !== false;
+      push(
+        emailSent
+          ? {
+              title: "Akun dibuat",
+              description: "Kami mengirim kode verifikasi ke email Anda.",
+              variant: "success"
+            }
+          : {
+              title: "Akun dibuat",
+              description:
+                "Kode verifikasi belum terkirim. Silakan klik “Kirim Kode” di halaman aktivasi.",
+              variant: "success"
+            }
+      );
+      router.push(
+        emailSent
+          ? `/verify?email=${encodeURIComponent(email)}&sent=1`
+          : `/verify?email=${encodeURIComponent(email)}`
+      );
     } catch {
       push({ title: "Gagal daftar", variant: "error" });
     } finally {

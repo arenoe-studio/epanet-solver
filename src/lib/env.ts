@@ -3,7 +3,7 @@ import { z } from "zod";
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   NEXTAUTH_SECRET: z.string().min(1),
-  RESEND_API_KEY: z.string().min(1),
+  RESEND_API_KEY: z.string().min(1).optional(),
   AUTH_EMAIL_FROM: z.string().min(1).optional(),
   AUTH_REQUIRE_LOGIN_OTP: z.enum(["true", "false"]).optional(),
   AUTH_OTP_TTL_MINUTES: z.coerce.number().int().min(3).max(60).optional(),

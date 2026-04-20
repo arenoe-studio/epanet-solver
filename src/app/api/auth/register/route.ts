@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { issueOtpCode } from "@/lib/auth-otp";
 import { getDb } from "@/lib/db";
@@ -10,7 +10,7 @@ import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { hashPassword } from "@/lib/password";
 import { rateLimitAuth, rateLimitOtpSend } from "@/lib/ratelimit";
-import { sendAuthCodeEmail } from "@/lib/resend";
+import { getResendClient, sendAuthCodeEmail } from "@/lib/resend";
 import { getClientIp } from "@/lib/request-ip";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 
@@ -23,7 +23,15 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const env = getServerEnv();
+  let env: ReturnType<typeof getServerEnv>;
+  try {
+    env = getServerEnv();
+  } catch {
+    return NextResponse.json(
+      { error: "Konfigurasi server belum lengkap. Coba lagi nanti." },
+      { status: 500 }
+    );
+  }
   const ip = getClientIp(request);
 
   const rl = await rateLimitAuth(`register:${ip}`);
@@ -63,6 +71,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
+  if (!otpRl.ok) {
+    return NextResponse.json(
+      { error: "Terlalu banyak permintaan kode. Coba lagi nanti." },
+      { status: 429, headers: { "Retry-After": String(otpRl.retryAfterSeconds) } }
+    );
+  }
+
   const userId = crypto.randomUUID();
   await db.insert(users).values({
     id: userId,
@@ -73,24 +89,38 @@ export async function POST(request: Request) {
 
   await ensureInitialTokenBalanceRow(db, userId);
 
-  const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
-  if (!otpRl.ok) {
+  const ttl = env.AUTH_OTP_TTL_MINUTES ?? 10;
+
+  let code: string;
+  try {
+    code = await issueOtpCode({
+      db,
+      email,
+      purpose: "verify_email",
+      pepper: env.NEXTAUTH_SECRET,
+      ttlMinutes: ttl
+    });
+  } catch {
+    // Best-effort cleanup to avoid creating a user that can't be verified.
+    try {
+      await db.delete(users).where(eq(users.id, userId));
+    } catch {}
+
     return NextResponse.json(
-      { error: "Terlalu banyak permintaan kode. Coba lagi nanti." },
-      { status: 429, headers: { "Retry-After": String(otpRl.retryAfterSeconds) } }
+      { error: "Gagal membuat kode verifikasi. Coba lagi nanti." },
+      { status: 500 }
     );
   }
 
-  const ttl = env.AUTH_OTP_TTL_MINUTES ?? 10;
-  const code = await issueOtpCode({
-    db,
-    email,
-    purpose: "verify_email",
-    pepper: env.NEXTAUTH_SECRET,
-    ttlMinutes: ttl
-  });
-  await sendAuthCodeEmail({ to: email, code, purpose: "verify_email" });
+  let emailSent = false;
+  if (getResendClient()) {
+    try {
+      await sendAuthCodeEmail({ to: email, code, purpose: "verify_email" });
+      emailSent = true;
+    } catch {
+      emailSent = false;
+    }
+  }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, emailSent });
 }
-
