@@ -6,6 +6,7 @@ import {
   ANALYSIS_TOKEN_COST,
   DOWNLOAD_EXCEL_TOKEN_COST,
   DOWNLOAD_INP_TOKEN_COST,
+  DOWNLOAD_PDF_TOKEN_COST,
   FIX_PRESSURE_TOKEN_COST
 } from "@/lib/token-constants";
 import {
@@ -17,6 +18,8 @@ import {
   TableRow
 } from "@/components/ui/table";
 import { openBuyTokenModal } from "@/lib/ui-events";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnalysisResult } from "@/types";
 
 type ResultsPanelProps = {
@@ -141,6 +144,44 @@ export function ResultsPanel({
   const prvRecs = result.prv?.recommendations ?? [];
   const postFix = result.prv?.postFix;
   const fixCost = result.prv?.tokenCost ?? FIX_PRESSURE_TOKEN_COST;
+  const exportDisabled = exportBusy !== null;
+
+  function costBadge(tokenCost: number) {
+    if (tokenCost <= 0) return <Badge className="bg-green-600 text-white">Gratis</Badge>;
+    return (
+      <Badge variant="outline" className="whitespace-nowrap">
+        {tokenCost} token
+      </Badge>
+    );
+  }
+
+  function DownloadAction({
+    title,
+    subtitle,
+    tokenCost,
+    onClick
+  }: {
+    title: string;
+    subtitle: string;
+    tokenCost: number;
+    onClick: () => void;
+  }) {
+    return (
+      <div className="space-y-1.5">
+        <Button
+          onClick={onClick}
+          variant="outline"
+          size="sm"
+          disabled={exportDisabled}
+          className="w-full justify-between gap-2"
+        >
+          <span className="text-left">{title}</span>
+          {costBadge(tokenCost)}
+        </Button>
+        <p className="px-1 text-[11px] leading-snug text-slate-gray">{subtitle}</p>
+      </div>
+    );
+  }
 
   async function downloadExport(
     format: "inp" | "pdf" | "excel",
@@ -845,135 +886,178 @@ export function ResultsPanel({
       )}
 
       {/* BLOK 7 — DOWNLOAD */}
-      <div className="rounded-2xl border border-border-lavender bg-white p-5 shadow-whisper space-y-4">
-        <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-          Unduh Hasil
-        </div>
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="text-base">Unduh Hasil</CardTitle>
+            <p className="mt-1 text-xs text-slate-gray">
+              Nama file mengikuti nama asli + tanggal analisis + kode analisis + versi (pre/post PRV).
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">
+              PDF: {DOWNLOAD_PDF_TOKEN_COST > 0 ? `${DOWNLOAD_PDF_TOKEN_COST} token` : "Gratis"}
+            </Badge>
+            <Badge variant="outline">INP: {DOWNLOAD_INP_TOKEN_COST} token</Badge>
+            <Badge variant="outline">Excel: {DOWNLOAD_EXCEL_TOKEN_COST} token</Badge>
+          </div>
+        </CardHeader>
 
         {filesFinal ? (
-          /* Kondisi 2 — Setelah Fix Pressure */
-          <div className="space-y-4">
-            <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-silver">
-                Versi dengan optimasi diameter saja, tanpa PRV
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => downloadExport("inp", "v1")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Unduh .inp (v1) — {DOWNLOAD_INP_TOKEN_COST} token
-                </Button>
-                <Button
-                  onClick={() => downloadExport("pdf", "v1")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Unduh .pdf (v1) — free token
-                </Button>
-                <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
-                  Unduh Excel (v1) — {DOWNLOAD_EXCEL_TOKEN_COST} token
-                </Button>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-border-lavender bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-expo-black">Versi v1</div>
+                    <div className="text-xs text-slate-gray">Optimasi diameter (tanpa PRV)</div>
+                  </div>
+                  <Badge variant="outline">Pre-PRV</Badge>
+                </div>
+                <div className="space-y-3">
+                  <DownloadAction
+                    title="File jaringan (.inp)"
+                    subtitle="Buka di EPANET untuk melihat model jaringan."
+                    tokenCost={DOWNLOAD_INP_TOKEN_COST}
+                    onClick={() => downloadExport("inp", "v1")}
+                  />
+                  <DownloadAction
+                    title="Laporan ringkas (.pdf)"
+                    subtitle="Ringkasan hasil + poin penting."
+                    tokenCost={DOWNLOAD_PDF_TOKEN_COST}
+                    onClick={() => downloadExport("pdf", "v1")}
+                  />
+                  <DownloadAction
+                    title="Tabel hasil (Excel)"
+                    subtitle="Summary + Nodes + Pipes + Materials."
+                    tokenCost={DOWNLOAD_EXCEL_TOKEN_COST}
+                    onClick={() => downloadExport("excel", "v1")}
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-border-lavender bg-white p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-expo-black">Versi final</div>
+                    <div className="text-xs text-slate-gray">Diameter dioptimasi + PRV disisipkan</div>
+                  </div>
+                  <Badge>Post-PRV</Badge>
+                </div>
+                <div className="space-y-3">
+                  <DownloadAction
+                    title="File jaringan (.inp)"
+                    subtitle="Sudah termasuk PRV hasil Fix Pressure."
+                    tokenCost={DOWNLOAD_INP_TOKEN_COST}
+                    onClick={() => downloadExport("inp", "final")}
+                  />
+                  <DownloadAction
+                    title="Laporan ringkas (.pdf)"
+                    subtitle="Ringkasan hasil versi final."
+                    tokenCost={DOWNLOAD_PDF_TOKEN_COST}
+                    onClick={() => downloadExport("pdf", "final")}
+                  />
+                  <DownloadAction
+                    title="Tabel hasil (Excel)"
+                    subtitle="Tabel hasil versi final."
+                    tokenCost={DOWNLOAD_EXCEL_TOKEN_COST}
+                    onClick={() => downloadExport("excel", "final")}
+                  />
+                </div>
               </div>
             </div>
-            <div>
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-silver">
-                Versi lengkap: diameter dioptimasi + PRV sudah disisipkan
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => downloadExport("inp", "final")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Unduh .inp (final) — {DOWNLOAD_INP_TOKEN_COST} token
-                </Button>
-                <Button
-                  onClick={() => downloadExport("pdf", "final")}
-                  variant="outline"
-                  size="sm"
-                >
-                  Unduh .pdf (final) — free token
-                </Button>
-                <Button onClick={() => downloadExport("excel", "final")} variant="outline" size="sm">
-                  Unduh Excel (final) — {DOWNLOAD_EXCEL_TOKEN_COST} token
-                </Button>
-              </div>
-            </div>
-          </div>
+          </CardContent>
         ) : prvNeeded ? (
-          /* Kondisi 1 — Setelah Modul 2, sebelum Fix Pressure */
-          <div>
-            <p className="mb-3 text-xs text-slate-gray">
-              File versi v1 sudah mencakup optimasi diameter. PRV belum disisipkan — tersedia di
-              versi final setelah Fix Pressure dijalankan.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() =>
-                  downloadExport("inp", "v1")
-                }
-                variant="outline"
-                size="sm"
-              >
-                Unduh .inp (v1) — {DOWNLOAD_INP_TOKEN_COST} token
-              </Button>
-              <Button
-                onClick={() => downloadExport("pdf", "v1")}
-                variant="outline"
-                size="sm"
-              >
-                Unduh .pdf (v1) — free token
-              </Button>
-              <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
-                Unduh Excel (v1) — {DOWNLOAD_EXCEL_TOKEN_COST} token
-              </Button>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl border border-border-lavender bg-white p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-expo-black">Versi v1 tersedia</div>
+                  <div className="text-xs text-slate-gray">
+                    PRV belum disisipkan. Jalankan Fix Pressure untuk versi final.
+                  </div>
+                </div>
+                <Badge variant="outline">Final terkunci</Badge>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-3">
+                <DownloadAction
+                  title="File jaringan (.inp)"
+                  subtitle="Buka di EPANET."
+                  tokenCost={DOWNLOAD_INP_TOKEN_COST}
+                  onClick={() => downloadExport("inp", "v1")}
+                />
+                <DownloadAction
+                  title="Laporan ringkas (.pdf)"
+                  subtitle="Ringkasan hasil + poin penting."
+                  tokenCost={DOWNLOAD_PDF_TOKEN_COST}
+                  onClick={() => downloadExport("pdf", "v1")}
+                />
+                <DownloadAction
+                  title="Tabel hasil (Excel)"
+                  subtitle="Ringkasan + tabel hasil."
+                  tokenCost={DOWNLOAD_EXCEL_TOKEN_COST}
+                  onClick={() => downloadExport("excel", "v1")}
+                />
+              </div>
             </div>
-          </div>
+          </CardContent>
         ) : (
-          /* Kondisi 3 — Semua kriteria terpenuhi */
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => downloadExport("inp", "v1")}
-              variant="outline"
-              size="sm"
-            >
-              Unduh .inp — {DOWNLOAD_INP_TOKEN_COST} token
-            </Button>
-            <Button
-              onClick={() => downloadExport("pdf", "v1")}
-              variant="outline"
-              size="sm"
-            >
-              Unduh .pdf — free token
-            </Button>
-            <Button onClick={() => downloadExport("excel", "v1")} variant="outline" size="sm">
-              Unduh Excel — {DOWNLOAD_EXCEL_TOKEN_COST} token
-            </Button>
-          </div>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl border border-border-lavender bg-white p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-expo-black">Hasil siap diunduh</div>
+                  <div className="text-xs text-slate-gray">Semua kriteria terpenuhi.</div>
+                </div>
+                <Badge className="bg-green-600 text-white">OK</Badge>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <DownloadAction
+                  title="File jaringan (.inp)"
+                  subtitle="Buka di EPANET."
+                  tokenCost={DOWNLOAD_INP_TOKEN_COST}
+                  onClick={() => downloadExport("inp", "v1")}
+                />
+                <DownloadAction
+                  title="Laporan ringkas (.pdf)"
+                  subtitle="Ringkasan hasil + poin penting."
+                  tokenCost={DOWNLOAD_PDF_TOKEN_COST}
+                  onClick={() => downloadExport("pdf", "v1")}
+                />
+                <DownloadAction
+                  title="Tabel hasil (Excel)"
+                  subtitle="Ringkasan + tabel hasil."
+                  tokenCost={DOWNLOAD_EXCEL_TOKEN_COST}
+                  onClick={() => downloadExport("excel", "v1")}
+                />
+              </div>
+            </div>
+          </CardContent>
         )}
 
         {(exportBusy || exportError) && (
-          <div className="rounded-xl border border-border-lavender bg-soft-lilac px-3 py-2 text-xs text-expo-black">
-            {exportBusy ? "Menyiapkan file untuk diunduh…" : exportError}
-          </div>
+          <CardContent className="pt-0">
+            <div className="rounded-xl border border-border-lavender bg-soft-lilac px-3 py-2 text-xs text-expo-black">
+              {exportBusy ? "Menyiapkan file untuk diunduh…" : exportError}
+            </div>
+          </CardContent>
         )}
 
-        <div className="border-t border-border-lavender pt-3 text-xs text-silver">
-          Token terpakai: Analisis = {ANALYSIS_TOKEN_COST} token
-          {filesFinal ? ` · Fix Pressure = ${fixCost} token` : ""}
-          {tokenBalance !== null && tokenBalance !== undefined
-            ? ` · Sisa saldo: ${tokenBalance} token`
-            : ""}
-        </div>
-
-        <div className="border-t border-border-lavender pt-3">
-          <Button onClick={onAnalyzeAnother} variant="outline" size="sm">
-            Analisis File Baru
-          </Button>
-        </div>
-      </div>
+        <CardContent className="pt-0">
+          <div className="mt-1 flex flex-wrap items-center justify-between gap-3 border-t border-border-lavender pt-4">
+            <div className="text-xs text-silver">
+              Token terpakai: Analisis = {ANALYSIS_TOKEN_COST} token
+              {filesFinal ? ` · Fix Pressure = ${fixCost} token` : ""}
+              {tokenBalance !== null && tokenBalance !== undefined
+                ? ` · Sisa saldo: ${tokenBalance} token`
+                : ""}
+            </div>
+            <Button onClick={onAnalyzeAnother} variant="outline" size="sm" disabled={exportDisabled}>
+              Analisis File Baru
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </section>
   );
 }
