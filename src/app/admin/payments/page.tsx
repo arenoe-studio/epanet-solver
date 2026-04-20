@@ -3,6 +3,7 @@ import Link from "next/link";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 
 import { adminUpdateTransaction } from "@/app/admin/actions";
+import { ConfirmButton } from "@/app/admin/_ui/ConfirmButton";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { transactions, users } from "@/lib/db/schema";
@@ -243,33 +244,23 @@ export default async function AdminPaymentsPage({
                             <input type="hidden" name="transactionId" value={row.id} />
                             <input type="hidden" name="status" value="paid" />
                             <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
-                            <button
-                              type="submit"
-                              onClick={(e) => {
-                                if (!confirm(`Set PAID: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`)) {
-                                  e.preventDefault();
-                                }
-                              }}
+                            <ConfirmButton
+                              message={`Set PAID: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`}
                               className="rounded bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
                             >
                               Set Paid
-                            </button>
+                            </ConfirmButton>
                           </form>
                           <form action={adminUpdateTransaction}>
                             <input type="hidden" name="transactionId" value={row.id} />
                             <input type="hidden" name="status" value="failed" />
                             <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
-                            <button
-                              type="submit"
-                              onClick={(e) => {
-                                if (!confirm(`Set FAILED: ${row.orderId}?`)) {
-                                  e.preventDefault();
-                                }
-                              }}
+                            <ConfirmButton
+                              message={`Set FAILED: ${row.orderId}?`}
                               className="rounded border border-[#e4e5ea] px-2.5 py-1 text-xs font-medium text-[#6b7280] hover:bg-[#f5f5f7]"
                             >
                               Set Failed
-                            </button>
+                            </ConfirmButton>
                           </form>
                         </div>
                       ) : (
