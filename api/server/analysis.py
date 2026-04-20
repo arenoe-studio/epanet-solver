@@ -47,6 +47,38 @@ def _build_prv_targets(applied_rows: list[dict], recommendations: list[dict]) ->
         str(rec.get("pipeId")): [str(nid) for nid in (rec.get("coveredNodes") or [])]
         for rec in (recommendations or [])
     }
+
+
+def _pressure_debug_snapshot(eval_results: dict) -> dict:
+    node_status = eval_results.get("node_status", {})
+
+    def _collect(code: str) -> list[dict]:
+        rows: list[dict] = []
+        for nid, info in node_status.items():
+            if str(nid).startswith("J_PRV_"):
+                continue
+            if info.get("code") != code:
+                continue
+            rows.append(
+                {
+                    "id": str(nid),
+                    "pressure": round(float(info.get("pressure", 0.0)), 2),
+                }
+            )
+        rows.sort(key=lambda row: (row["pressure"], row["id"]))
+        return rows
+
+    high = _collect("P-HIGH")
+    low = _collect("P-LOW")
+    neg = _collect("P-NEG")
+    return {
+        "highCount": len(high),
+        "lowCount": len(low),
+        "negativeCount": len(neg),
+        "highNodes": high,
+        "lowNodes": low,
+        "negativeNodes": neg,
+    }
     return {
         str(row["prvValve"]): recommendation_by_pipe.get(str(row.get("originalPipe")), [])
         for row in (applied_rows or [])
@@ -101,6 +133,7 @@ def analyze_inp_bytes(
 
         materials_v1 = material_recommendations_for_network(wn_opt, sim_after)
         prv_advice = analyze_prv_recommendations(wn_opt, sim_after, after_eval)
+        prv_debug_log: list[dict] = []
 
         export_optimized_inp(inp_path, wn_opt, out_inp_v1)
         export_markdown_report(
@@ -115,6 +148,7 @@ def analyze_inp_bytes(
             prv=prv_advice,
             output_path=out_md_v1,
             report_kind="v1",
+            prv_debug_log=prv_debug_log,
         )
 
         final_eval = after_eval
@@ -132,16 +166,46 @@ def analyze_inp_bytes(
                 recommendations = current_prv_advice.get("recommendations") or []
                 if not recommendations:
                     break
+                stage_debug = {
+                    "stage": stage,
+                    "before": _pressure_debug_snapshot(final_eval),
+                    "recommendations": [
+                        {
+                            "pipeId": str(rec.get("pipeId")),
+                            "settingHeadM": round(float(rec.get("settingHeadM", 0.0)), 2),
+                            "coveredNodes": [str(nid) for nid in (rec.get("coveredNodes") or [])],
+                        }
+                        for rec in recommendations
+                    ],
+                }
 
                 stage_fix_log = apply_prvs(wn_opt, recommendations)
                 if not stage_fix_log:
+                    stage_debug["status"] = "no_prv_applied"
+                    prv_debug_log.append(stage_debug)
                     break
                 prv_fix_log.extend(dict(row, stage=stage) for row in stage_fix_log)
+                stage_debug["applied"] = [
+                    {
+                        "prvValve": str(row.get("prvValve")),
+                        "originalPipe": str(row.get("originalPipe")),
+                        "settingHeadM": round(float(row.get("settingHeadM", 0.0)), 2),
+                    }
+                    for row in stage_fix_log
+                ]
 
                 prv_targets = _build_prv_targets(stage_fix_log, recommendations)
                 stage_tune_log = fine_tune_prvs(wn_opt, prv_targets)
                 if stage_tune_log:
                     prv_tune_log.extend(dict(row, iter=f"S{stage}-{row.get('iter')}") for row in stage_tune_log)
+                if stage_tune_log:
+                    last_tune = stage_tune_log[-1]
+                    stage_debug["tuningEnd"] = {
+                        "status": str(last_tune.get("status", "unknown")),
+                        "reason": str(last_tune.get("reason", "")),
+                        "minP": round(float(last_tune.get("minP", 0.0)), 2),
+                        "maxP": round(float(last_tune.get("maxP", 0.0)), 2),
+                    }
 
                 # Rerun Modul 2 AFTER every PRV stage so V/HL optimization adapts
                 # to the new head distribution before we judge the remaining
@@ -179,6 +243,9 @@ def analyze_inp_bytes(
                 final_sim = run_simulation(wn_opt)
                 final_eval = evaluate_network(wn_opt, final_sim)
                 pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, current_prv_advice)
+                stage_debug["after"] = _pressure_debug_snapshot(final_eval)
+                stage_debug["followupStatus"] = str(pressure_followup.get("status", "unknown"))
+                prv_debug_log.append(stage_debug)
                 if pressure_followup.get("status") == "resolved":
                     break
 
@@ -206,6 +273,7 @@ def analyze_inp_bytes(
                 prv_fix_log=prv_fix_log,
                 prv_tune_log=prv_tune_log,
                 pressure_followup=pressure_followup,
+                prv_debug_log=prv_debug_log,
             )
 
         # --- Build supplementary per-element data (frontend contract) ---
@@ -319,6 +387,7 @@ def analyze_inp_bytes(
                 "action": action,
             },
             "prv": {**prv_advice, "postFix": pressure_followup},
+            "prvDebug": prv_debug_log,
             "nodes": nodes_data,
             "pipes": pipes_data,
             "materials": materials_data,

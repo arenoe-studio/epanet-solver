@@ -9,6 +9,7 @@ import { shouldBypassTokensForEmail } from "@/lib/admin";
 import { upsertAnalysisSnapshot } from "@/lib/analysis-snapshots";
 import { getDb } from "@/lib/db";
 import { analyses, tokenBalances } from "@/lib/db/schema";
+import { buildPythonApiUrl } from "@/lib/python-api";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
 
@@ -20,22 +21,6 @@ function previewJson(value: unknown, maxChars = 2000) {
   } catch {
     return String(value);
   }
-}
-
-function getBackendBaseUrl(requestUrl: string) {
-  const env = process.env.PYTHON_API_URL;
-  if (env) {
-    try {
-      const u = new URL(env);
-      if (u.pathname && u.pathname !== "/") {
-        return `${u.origin}`;
-      }
-      return env.replace(/\/+$/, "");
-    } catch {
-      return env;
-    }
-  }
-  return new URL(requestUrl).origin;
 }
 
 async function fetchJson(res: Response) {
@@ -99,9 +84,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       return jsonWithTrace({ error: "Not found" }, { status: 404 });
     }
 
-    const base = getBackendBaseUrl(req.url);
     const backendRes = await fetch(
-      `${base}/v1/simulations/${encodeURIComponent(jobId)}/result`,
+      buildPythonApiUrl(req.url, `/v1/simulations/${encodeURIComponent(jobId)}/result`),
       { method: "GET" }
     );
 

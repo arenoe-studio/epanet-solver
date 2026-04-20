@@ -7,6 +7,7 @@ import { shouldBypassTokensForEmail } from "@/lib/admin";
 import { upsertAnalysisSnapshot } from "@/lib/analysis-snapshots";
 import { getDb } from "@/lib/db";
 import { analyses } from "@/lib/db/schema";
+import { buildPythonApiUrl } from "@/lib/python-api";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import { FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
@@ -23,20 +24,6 @@ async function parseBackendBody(res: Response) {
   } catch {
     return { text, json: null as any };
   }
-}
-
-function getBackendBaseUrl(requestUrl: string) {
-  const env = process.env.PYTHON_API_URL;
-  if (env) {
-    try {
-      const u = new URL(env);
-      if (u.pathname && u.pathname !== "/") return `${u.origin}`;
-      return env.replace(/\/+$/, "");
-    } catch {
-      return env;
-    }
-  }
-  return new URL(requestUrl).origin;
 }
 
 export async function POST(req: Request) {
@@ -107,10 +94,10 @@ export async function POST(req: Request) {
   pythonFormData.set("action", "fix_pressure");
 
   try {
-    const base = getBackendBaseUrl(req.url);
-    const pythonRes = await fetch(`${base}/v1/simulations`, {
+    const pythonRes = await fetch(buildPythonApiUrl(req.url, "/v1/simulations"), {
       method: "POST",
-      body: pythonFormData
+      body: pythonFormData,
+      signal: AbortSignal.timeout(15000)
     });
     const { text, json } = await parseBackendBody(pythonRes);
 
@@ -139,8 +126,12 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, analysisId, jobId: String(json.id) });
-  } catch {
+  } catch (error) {
     await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));
-    return NextResponse.json({ success: false, error: "System error" }, { status: 500 });
+    const message =
+      error instanceof Error && error.name === "TimeoutError"
+        ? "Backend Python API timeout"
+        : "System error";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

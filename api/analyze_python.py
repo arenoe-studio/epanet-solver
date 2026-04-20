@@ -98,6 +98,38 @@ def _build_prv_targets(applied_rows: list[dict], recommendations: list[dict]) ->
     }
 
 
+def _pressure_debug_snapshot(eval_results: dict) -> dict:
+    node_status = eval_results.get("node_status", {})
+
+    def _collect(code: str) -> list[dict]:
+        rows: list[dict] = []
+        for nid, info in node_status.items():
+            if str(nid).startswith("J_PRV_"):
+                continue
+            if info.get("code") != code:
+                continue
+            rows.append(
+                {
+                    "id": str(nid),
+                    "pressure": round(float(info.get("pressure", 0.0)), 2),
+                }
+            )
+        rows.sort(key=lambda row: (row["pressure"], row["id"]))
+        return rows
+
+    high = _collect("P-HIGH")
+    low = _collect("P-LOW")
+    neg = _collect("P-NEG")
+    return {
+        "highCount": len(high),
+        "lowCount": len(low),
+        "negativeCount": len(neg),
+        "highNodes": high,
+        "lowNodes": low,
+        "negativeNodes": neg,
+    }
+
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         start = time.time()
@@ -153,6 +185,7 @@ class handler(BaseHTTPRequestHandler):
 
             materials_v1 = material_recommendations_for_network(wn_opt, sim_after)
             prv = analyze_prv_recommendations(wn_opt, sim_after, after_eval)
+            prv_debug_log = []
 
             out_inp_v1 = tmp_dir / f"{uuid.uuid4()}_optimized_network_v1.inp"
             out_md_v1 = tmp_dir / f"{uuid.uuid4()}_analysis_report_v1.md"
@@ -170,6 +203,7 @@ class handler(BaseHTTPRequestHandler):
                 prv=prv,
                 output_path=out_md_v1,
                 report_kind="v1",
+                prv_debug_log=prv_debug_log,
             )
 
             prv_fix_log = None
@@ -187,16 +221,46 @@ class handler(BaseHTTPRequestHandler):
                     recommendations = current_prv_advice.get("recommendations") or []
                     if not recommendations:
                         break
+                    stage_debug = {
+                        "stage": stage,
+                        "before": _pressure_debug_snapshot(final_eval),
+                        "recommendations": [
+                            {
+                                "pipeId": str(rec.get("pipeId")),
+                                "settingHeadM": round(float(rec.get("settingHeadM", 0.0)), 2),
+                                "coveredNodes": [str(nid) for nid in (rec.get("coveredNodes") or [])],
+                            }
+                            for rec in recommendations
+                        ],
+                    }
 
                     stage_fix_log = apply_prvs(wn_opt, recommendations)
                     if not stage_fix_log:
+                        stage_debug["status"] = "no_prv_applied"
+                        prv_debug_log.append(stage_debug)
                         break
                     prv_fix_log.extend(dict(row, stage=stage) for row in stage_fix_log)
+                    stage_debug["applied"] = [
+                        {
+                            "prvValve": str(row.get("prvValve")),
+                            "originalPipe": str(row.get("originalPipe")),
+                            "settingHeadM": round(float(row.get("settingHeadM", 0.0)), 2),
+                        }
+                        for row in stage_fix_log
+                    ]
 
                     prv_targets = _build_prv_targets(stage_fix_log, recommendations)
                     stage_tune_log = fine_tune_prvs(wn_opt, prv_targets)
                     if stage_tune_log:
                         prv_tune_log.extend(dict(row, iter=f"S{stage}-{row.get('iter')}") for row in stage_tune_log)
+                    if stage_tune_log:
+                        last_tune = stage_tune_log[-1]
+                        stage_debug["tuningEnd"] = {
+                            "status": str(last_tune.get("status", "unknown")),
+                            "reason": str(last_tune.get("reason", "")),
+                            "minP": round(float(last_tune.get("minP", 0.0)), 2),
+                            "maxP": round(float(last_tune.get("maxP", 0.0)), 2),
+                        }
 
                     rerun_budget = 8.0
                     rerun_iters = min(10, MAX_ITERATIONS_SERVERLESS)
@@ -232,6 +296,9 @@ class handler(BaseHTTPRequestHandler):
                     final_eval = evaluate_network(wn_opt, sim_final)
                     final_sim_results = sim_final
                     pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, current_prv_advice)
+                    stage_debug["after"] = _pressure_debug_snapshot(final_eval)
+                    stage_debug["followupStatus"] = str(pressure_followup.get("status", "unknown"))
+                    prv_debug_log.append(stage_debug)
                     if pressure_followup.get("status") == "resolved":
                         break
 
@@ -367,6 +434,7 @@ class handler(BaseHTTPRequestHandler):
                     "fileName": filename,
                 },
                 "prv": {**prv, "postFix": pressure_followup},
+                "prvDebug": prv_debug_log,
                 "filesV1": {"inp": _b64_file(out_inp_v1), "md": _b64_file(out_md_v1)},
                 "filesFinal": (
                     {"inp": _b64_file(out_inp_final), "md": _b64_file(out_md_final)}

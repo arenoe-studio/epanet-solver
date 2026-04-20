@@ -1,20 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth-server";
-
-function getBackendBaseUrl(requestUrl: string) {
-  const env = process.env.PYTHON_API_URL;
-  if (env) {
-    try {
-      const u = new URL(env);
-      if (u.pathname && u.pathname !== "/") return `${u.origin}`;
-      return env.replace(/\/+$/, "");
-    } catch {
-      return env;
-    }
-  }
-  return new URL(requestUrl).origin;
-}
+import { buildPythonApiUrl } from "@/lib/python-api";
 
 export async function GET(
   req: Request,
@@ -26,8 +13,10 @@ export async function GET(
   }
 
   const { jobId, name } = await ctx.params;
-  const base = getBackendBaseUrl(req.url);
-  const url = `${base}/v1/simulations/${encodeURIComponent(jobId)}/files/${encodeURIComponent(name)}`;
+  const url = buildPythonApiUrl(
+    req.url,
+    `/v1/simulations/${encodeURIComponent(jobId)}/files/${encodeURIComponent(name)}`
+  );
 
   try {
     const res = await fetch(url, { method: "GET" });
@@ -54,4 +43,3 @@ export async function GET(
     return NextResponse.json({ error: "System error" }, { status: 500 });
   }
 }
-

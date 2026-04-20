@@ -132,6 +132,33 @@ def _prv_recommendations(md: list[str], prv: dict) -> None:
         )
 
 
+def _join_pressure_nodes(rows: list[dict] | None) -> str:
+    data = rows or []
+    if not data:
+        return "—"
+    return ", ".join(f"{row.get('id')} ({float(row.get('pressure', 0.0)):.2f} m)" for row in data)
+
+
+def _join_prv_recommendation_debug(rows: list[dict] | None) -> str:
+    data = rows or []
+    if not data:
+        return "—"
+    return "; ".join(
+        f"{row.get('pipeId')} ({float(row.get('settingHeadM', 0.0)):.1f} m -> {', '.join(row.get('coveredNodes') or [])})"
+        for row in data
+    )
+
+
+def _join_prv_applied_debug(rows: list[dict] | None) -> str:
+    data = rows or []
+    if not data:
+        return "—"
+    return "; ".join(
+        f"{row.get('prvValve')} pada {row.get('originalPipe')} ({float(row.get('settingHeadM', 0.0)):.1f} m)"
+        for row in data
+    )
+
+
 def export_markdown_report(
     inp_path: Path,
     file_name: str,
@@ -147,6 +174,7 @@ def export_markdown_report(
     prv_fix_log: list[dict] | None = None,
     prv_tune_log: list[dict] | None = None,
     pressure_followup: dict | None = None,
+    prv_debug_log: list[dict] | None = None,
 ) -> None:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -328,6 +356,45 @@ def export_markdown_report(
             for item in pressure_followup.get("recommendations") or []:
                 md.append(f"- {item}")
             md.append("")
+
+        if prv_debug_log:
+            md.append("## Trace Fix Pressure per Stage")
+            md.append("")
+            for row in prv_debug_log:
+                md.append(f"### Stage {row.get('stage')}")
+                md.append("")
+                before = row.get("before") or {}
+                after = row.get("after") or {}
+                md.append(
+                    f"- Sebelum stage: P-HIGH **{before.get('highCount', 0)}**, "
+                    f"P-LOW **{before.get('lowCount', 0)}**, P-NEG **{before.get('negativeCount', 0)}**"
+                )
+                md.append(
+                    f"- Node P-HIGH sebelum: {_join_pressure_nodes(before.get('highNodes'))}"
+                )
+                md.append(
+                    f"- Rekomendasi PRV: {_join_prv_recommendation_debug(row.get('recommendations'))}"
+                )
+                md.append(
+                    f"- PRV terpasang: {_join_prv_applied_debug(row.get('applied'))}"
+                )
+                tuning = row.get("tuningEnd") or {}
+                if tuning:
+                    md.append(
+                        f"- Tuning berhenti di status **{tuning.get('status', 'unknown')}** "
+                        f"(minP={float(tuning.get('minP', 0.0)):.2f} m, maxP={float(tuning.get('maxP', 0.0)):.2f} m)"
+                    )
+                    if tuning.get("reason"):
+                        md.append(f"- Alasan tuning: {tuning.get('reason')}")
+                md.append(
+                    f"- Setelah stage: P-HIGH **{after.get('highCount', 0)}**, "
+                    f"P-LOW **{after.get('lowCount', 0)}**, P-NEG **{after.get('negativeCount', 0)}**"
+                )
+                md.append(
+                    f"- Node P-HIGH sesudah: {_join_pressure_nodes(after.get('highNodes'))}"
+                )
+                md.append(f"- Status follow-up: **{row.get('followupStatus', 'unknown')}**")
+                md.append("")
 
     md.append("## Referensi Standar")
     md.append("")

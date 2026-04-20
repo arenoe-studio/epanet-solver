@@ -90,6 +90,43 @@ export type AnalysisResult = {
       }>;
     };
   };
+  prvDebug?: Array<{
+    stage: number;
+    status?: string;
+    before: {
+      highCount: number;
+      lowCount: number;
+      negativeCount: number;
+      highNodes: Array<{ id: string; pressure: number }>;
+      lowNodes: Array<{ id: string; pressure: number }>;
+      negativeNodes: Array<{ id: string; pressure: number }>;
+    };
+    recommendations: Array<{
+      pipeId: string;
+      settingHeadM: number;
+      coveredNodes: string[];
+    }>;
+    applied?: Array<{
+      prvValve: string;
+      originalPipe: string;
+      settingHeadM: number;
+    }>;
+    tuningEnd?: {
+      status: string;
+      reason: string;
+      minP: number;
+      maxP: number;
+    };
+    after?: {
+      highCount: number;
+      lowCount: number;
+      negativeCount: number;
+      highNodes: Array<{ id: string; pressure: number }>;
+      lowNodes: Array<{ id: string; pressure: number }>;
+      negativeNodes: Array<{ id: string; pressure: number }>;
+    };
+    followupStatus?: string;
+  }>;
   files: {
     inp?: string;
     md?: string;

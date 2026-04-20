@@ -486,6 +486,8 @@ def _is_synthetic_prv_node(node_id: str) -> bool:
 def _normalize_prv_targets(
     prv_targets: dict[str, list[str]] | list[str],
 ) -> dict[str, list[str]]:
+    if not prv_targets:
+        return {}
     if isinstance(prv_targets, dict):
         return {
             str(valve_id): sorted({str(nid) for nid in (node_ids or [])})

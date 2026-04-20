@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { analyses } from "@/lib/db/schema";
+import { buildPythonApiUrl } from "@/lib/python-api";
 
 async function parseBackendBody(res: Response) {
   const text = await res.text();
@@ -14,22 +15,6 @@ async function parseBackendBody(res: Response) {
   } catch {
     return { text, json: null as any };
   }
-}
-
-function getBackendBaseUrl(requestUrl: string) {
-  const env = process.env.PYTHON_API_URL;
-  if (env) {
-    try {
-      const u = new URL(env);
-      if (u.pathname && u.pathname !== "/") {
-        return `${u.origin}`;
-      }
-      return env.replace(/\/+$/, "");
-    } catch {
-      return env;
-    }
-  }
-  return new URL(requestUrl).origin;
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
@@ -43,10 +28,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const url = new URL(req.url);
   const analysisIdRaw = url.searchParams.get("analysisId");
   const analysisId = analysisIdRaw ? Number(analysisIdRaw) : NaN;
-  const base = getBackendBaseUrl(req.url);
-
   try {
-    const res = await fetch(`${base}/v1/simulations/${encodeURIComponent(jobId)}`, {
+    const res = await fetch(buildPythonApiUrl(req.url, `/v1/simulations/${encodeURIComponent(jobId)}`), {
       method: "GET"
     });
     const { text, json } = await parseBackendBody(res);
