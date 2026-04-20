@@ -7,6 +7,10 @@ import useSWR from "swr";
 
 import { TokenPackageCard } from "@/components/checkout/TokenPackageCard";
 import { InvoiceModal } from "@/components/modals/InvoiceModal";
+import {
+  QrisStaticPaymentModal,
+  type QrisStaticPaymentData
+} from "@/components/modals/QrisStaticPaymentModal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/providers/ToastProvider";
@@ -79,6 +83,10 @@ function canReuseSnapToken(tx: TransactionRow) {
   return Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now();
 }
 
+function isQrisStatic(tx: TransactionRow) {
+  return (tx.paymentMethod ?? "").toLowerCase().startsWith("qris");
+}
+
 export function CheckoutClient() {
   const { data: session, status: sessionStatus } = useSession();
   const isAuthenticated = sessionStatus === "authenticated";
@@ -91,6 +99,7 @@ export function CheckoutClient() {
   const [busyPackage, setBusyPackage] = useState<TokenPackageKey | null>(null);
   const [expandedHistory, setExpandedHistory] = useState(false);
   const [invoiceTransaction, setInvoiceTransaction] = useState<TransactionRow | null>(null);
+  const [qrisPayment, setQrisPayment] = useState<QrisStaticPaymentData | null>(null);
 
   const selectedFromQuery = useMemo(() => {
     return resolveTokenPackageKey(searchParams.get("package"));
@@ -187,23 +196,72 @@ export function CheckoutClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ package: pkgKey })
       });
-      const json = (await res.json()) as {
-        snapToken?: string;
-        orderId?: string;
-        error?: string;
-      };
+      const json = (await res.json()) as
+        | {
+            provider?: "midtrans";
+            snapToken?: string;
+            orderId?: string;
+            error?: string;
+          }
+        | {
+            provider?: "qris_static";
+            orderId?: string;
+            qris?: { qrImageUrl: string; label: string };
+            amount?: number;
+            error?: string;
+          };
 
-      if (!res.ok || !json.snapToken) {
+      if (!res.ok || !json || (json as { error?: string }).error) {
         push({
           title: "Gagal memulai pembayaran",
-          description: json.error ?? "Coba lagi dalam beberapa saat.",
+          description: (json as { error?: string })?.error ?? "Coba lagi dalam beberapa saat.",
           variant: "error"
         });
         setBusyPackage(null);
         return;
       }
 
-      await openSnapPayment(json.snapToken);
+      const provider = (json as { provider?: string }).provider;
+      if (provider === "midtrans") {
+        const snapToken = (json as { snapToken?: string }).snapToken;
+        if (!snapToken) {
+          push({
+            title: "Gagal memulai pembayaran",
+            description: "Token Midtrans tidak tersedia.",
+            variant: "error"
+          });
+          setBusyPackage(null);
+          return;
+        }
+        await openSnapPayment(snapToken);
+        return;
+      }
+
+      const orderId = (json as { orderId?: string }).orderId;
+      const qris = (json as { qris?: { qrImageUrl: string; label: string } }).qris;
+      const amount = (json as { amount?: number }).amount;
+      if (!orderId || !qris?.qrImageUrl || !amount) {
+        push({
+          title: "Gagal memulai pembayaran",
+          description: "Data QRIS tidak lengkap.",
+          variant: "error"
+        });
+        setBusyPackage(null);
+        return;
+      }
+
+      setQrisPayment({
+        orderId,
+        amount,
+        label: qris.label ?? "QRIS",
+        qrImageUrl: qris.qrImageUrl
+      });
+      push({
+        title: "Scan QRIS untuk bayar",
+        description: "Setelah bayar, pembayaran akan diverifikasi admin.",
+        variant: "info"
+      });
+      setBusyPackage(null);
     } catch {
       push({
         title: "Gagal memulai pembayaran",
@@ -221,6 +279,34 @@ export function CheckoutClient() {
         title: "Paket tidak dikenali",
         description: "Silakan buat transaksi baru dari bagian atas.",
         variant: "error"
+      });
+      return;
+    }
+
+    if (isQrisStatic(tx)) {
+      const qrImageUrl = process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL ?? "";
+      const label = process.env.NEXT_PUBLIC_QRIS_STATIC_LABEL ?? "QRIS";
+      if (!qrImageUrl) {
+        push({
+          title: "QRIS belum tersedia",
+          description: "QRIS static belum dikonfigurasi.",
+          variant: "error"
+        });
+        return;
+      }
+      if (!tx.amount || !tx.orderId) {
+        push({
+          title: "Data transaksi tidak lengkap",
+          description: "Silakan buat transaksi baru dari bagian atas.",
+          variant: "error"
+        });
+        return;
+      }
+      setQrisPayment({
+        orderId: tx.orderId,
+        amount: tx.amount,
+        label,
+        qrImageUrl
       });
       return;
     }
@@ -394,7 +480,7 @@ export function CheckoutClient() {
                             </Button>
                           ) : tx.status === "pending" ? (
                             <Button size="sm" onClick={() => void continuePayment(tx)}>
-                              Lanjutkan Pembayaran
+                              {isQrisStatic(tx) ? "Lihat QRIS" : "Lanjutkan Pembayaran"}
                             </Button>
                           ) : (
                             <Button
@@ -443,6 +529,14 @@ export function CheckoutClient() {
         transaction={invoiceTransaction}
         accountName={accountName}
         accountEmail={accountEmail}
+      />
+
+      <QrisStaticPaymentModal
+        open={Boolean(qrisPayment)}
+        onOpenChange={(open) => {
+          if (!open) setQrisPayment(null);
+        }}
+        data={qrisPayment}
       />
     </div>
   );

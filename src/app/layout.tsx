@@ -5,6 +5,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
 import { AuthSessionProvider } from "@/components/providers/SessionProvider";
 import { ToastProvider } from "@/components/providers/ToastProvider";
+import { getPaymentProvider } from "@/lib/payment";
 
 import "./globals.css";
 
@@ -18,6 +19,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const paymentProvider = getPaymentProvider();
+  const isMidtrans = paymentProvider === "midtrans";
   const isSandbox = process.env.MIDTRANS_IS_PRODUCTION !== "true";
   const snapUrl = `https://app${isSandbox ? ".sandbox" : ""}.midtrans.com/snap/snap.js`;
   const midtransClientKey = process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY;
@@ -42,7 +45,7 @@ export default function RootLayout({
             </div>
           </ToastProvider>
         </AuthSessionProvider>
-        {midtransClientKey ? (
+        {isMidtrans && midtransClientKey ? (
           <Script
             src={snapUrl}
             data-client-key={midtransClientKey}

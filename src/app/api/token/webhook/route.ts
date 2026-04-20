@@ -6,6 +6,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 import { tokenBalances, transactions, users } from "@/lib/db/schema";
+import { getPaymentProvider } from "@/lib/payment";
 import { sendPaymentConfirmationEmail } from "@/lib/resend";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,10 @@ function verifySignature(body: MidtransWebhookBody) {
 }
 
 export async function POST(req: Request) {
+  if (getPaymentProvider() !== "midtrans") {
+    return NextResponse.json({ ok: true });
+  }
+
   const body = (await req.json()) as MidtransWebhookBody;
   if (!verifySignature(body)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

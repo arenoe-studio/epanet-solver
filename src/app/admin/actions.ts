@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
-import { adminTokenEvents, contactMessages, tokenBalances, users } from "@/lib/db/schema";
+import { adminTokenEvents, contactMessages, tokenBalances, transactions, users } from "@/lib/db/schema";
+import { sendPaymentConfirmationEmail } from "@/lib/resend";
 
 const adjustTokensSchema = z.object({
   userId: z.string().min(1),
@@ -87,6 +88,7 @@ export async function adminAdjustTokens(formData: FormData) {
   });
 
   revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
   revalidatePath("/admin");
   revalidatePath("/admin/ledger");
 }
@@ -160,6 +162,7 @@ export async function adminSetTokens(formData: FormData) {
   });
 
   revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
   revalidatePath("/admin");
   revalidatePath("/admin/ledger");
 }
@@ -191,6 +194,7 @@ export async function adminUpdateUser(formData: FormData) {
     .where(eq(users.id, userId));
 
   revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
   revalidatePath("/admin");
 }
 
@@ -222,4 +226,112 @@ export async function adminUpdateReport(formData: FormData) {
 
   revalidatePath(`/admin/reports/${id}`);
   revalidatePath("/admin/reports");
+}
+
+const updateTxSchema = z.object({
+  transactionId: z.coerce.number().int().positive(),
+  status: z.enum(["pending", "paid", "failed"]),
+  paymentMethod: z.string().max(100).optional()
+});
+
+export async function adminUpdateTransaction(formData: FormData) {
+  const parsed = updateTxSchema.safeParse({
+    transactionId: formData.get("transactionId"),
+    status: formData.get("status"),
+    paymentMethod: formData.get("paymentMethod") ?? undefined
+  });
+  if (!parsed.success) return;
+
+  await requireAdmin();
+  const { transactionId, status, paymentMethod } = parsed.data;
+
+  const db = getDb();
+  const txRows = await db
+    .select()
+    .from(transactions)
+    .where(eq(transactions.id, transactionId))
+    .limit(1);
+
+  const tx = txRows[0];
+  if (!tx || !tx.userId) return;
+  const userId = tx.userId;
+
+  if (status !== "paid") {
+    await db
+      .update(transactions)
+      .set({
+        status,
+        paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
+        paidAt: null
+      })
+      .where(eq(transactions.id, transactionId));
+
+    revalidatePath(`/admin/users/${userId}`);
+    revalidatePath("/admin/payments");
+    revalidatePath("/admin");
+    return;
+  }
+
+  if (tx.status === "paid") {
+    revalidatePath(`/admin/users/${userId}`);
+    revalidatePath("/admin/payments");
+    revalidatePath("/admin");
+    return;
+  }
+
+  await db.transaction(async (dbTx) => {
+    await dbTx
+      .update(transactions)
+      .set({
+        status: "paid",
+        paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
+        paidAt: new Date()
+      })
+      .where(eq(transactions.id, transactionId));
+
+    await dbTx
+      .update(tokenBalances)
+      .set({
+        balance: sql`${tokenBalances.balance} + ${tx.tokens ?? 0}`,
+        totalBought: sql`${tokenBalances.totalBought} + ${tx.tokens ?? 0}`,
+        updatedAt: new Date()
+      })
+      .where(eq(tokenBalances.userId, userId));
+
+    const updated = await dbTx
+      .select({ id: tokenBalances.id })
+      .from(tokenBalances)
+      .where(eq(tokenBalances.userId, userId))
+      .limit(1);
+    if (updated.length === 0) {
+      await dbTx.insert(tokenBalances).values({
+        userId,
+        balance: tx.tokens ?? 0,
+        totalBought: tx.tokens ?? 0,
+        totalUsed: 0,
+        updatedAt: new Date()
+      });
+    }
+  });
+
+  const userRows = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  const to = userRows[0]?.email ?? "";
+  if (to && tx.tokens && tx.amount) {
+    void sendPaymentConfirmationEmail({
+      to,
+      tokens: tx.tokens,
+      amount: tx.amount,
+      orderId: tx.orderId
+    });
+  }
+
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/payments");
+  revalidatePath("/admin");
+  revalidatePath("/checkout");
 }

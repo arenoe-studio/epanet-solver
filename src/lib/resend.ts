@@ -31,6 +31,37 @@ export async function sendPaymentConfirmationEmail(opts: {
   });
 }
 
+export async function sendAdminPendingPaymentEmail(opts: {
+  to: string;
+  userEmail: string;
+  userName: string;
+  orderId: string;
+  amount: number;
+  tokens: number;
+  packageKey: string;
+  packageName: string;
+}) {
+  const resend = getResend();
+  if (!resend) return;
+
+  await resend.emails.send({
+    from: "EPANET Solver <onboarding@resend.dev>",
+    to: opts.to,
+    subject: `Pembayaran baru (pending) — ${opts.orderId}`,
+    text: [
+      "Ada transaksi baru yang menunggu verifikasi.",
+      "",
+      `Order: ${opts.orderId}`,
+      `User: ${opts.userName} <${opts.userEmail}>`,
+      `Package: ${opts.packageName} (${opts.packageKey})`,
+      `Token: ${opts.tokens}`,
+      `Amount: Rp ${opts.amount}`,
+      "",
+      "Konfirmasi pembayaran dari panel admin: /admin"
+    ].join("\n")
+  });
+}
+
 export async function sendAuthCodeEmail(opts: {
   to: string;
   code: string;
@@ -56,4 +87,3 @@ export async function sendAuthCodeEmail(opts: {
     text: `Kode Anda: ${opts.code}\n\nKode berlaku beberapa menit. Jika Anda tidak merasa meminta kode ini, abaikan email ini.\n`
   });
 }
-

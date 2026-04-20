@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 
 import { and, desc, eq } from "drizzle-orm";
 
-import { adminAdjustTokens, adminSetTokens, adminUpdateUser } from "@/app/admin/actions";
+import {
+  adminAdjustTokens,
+  adminSetTokens,
+  adminUpdateTransaction,
+  adminUpdateUser
+} from "@/app/admin/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,7 +116,7 @@ export default async function AdminUserDetailPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Link
-            href="/admin"
+            href="/admin/users"
             className="text-sm font-semibold text-slate-gray hover:text-expo-black"
           >
             ← Kembali
@@ -348,6 +353,7 @@ export default async function AdminUserDetailPage({
                   <TableHead>Token</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Paid</TableHead>
+                  <TableHead>Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -365,11 +371,41 @@ export default async function AdminUserDetailPage({
                     <TableCell className="text-xs text-near-black">{t.tokens ?? 0}</TableCell>
                     <TableCell className="text-xs text-near-black">{t.amount ?? 0}</TableCell>
                     <TableCell className="text-xs">{fmt(t.paidAt)}</TableCell>
+                    <TableCell className="text-xs">
+                      {t.status === "pending" ? (
+                        <div className="flex flex-wrap gap-2">
+                          <form action={adminUpdateTransaction}>
+                            <input type="hidden" name="transactionId" value={t.id} />
+                            <input type="hidden" name="status" value="paid" />
+                            <input
+                              type="hidden"
+                              name="paymentMethod"
+                              value={t.paymentMethod ?? "qris_static"}
+                            />
+                            <Button size="sm">Set paid</Button>
+                          </form>
+                          <form action={adminUpdateTransaction}>
+                            <input type="hidden" name="transactionId" value={t.id} />
+                            <input type="hidden" name="status" value="failed" />
+                            <input
+                              type="hidden"
+                              name="paymentMethod"
+                              value={t.paymentMethod ?? "qris_static"}
+                            />
+                            <Button size="sm" variant="outline">
+                              Set failed
+                            </Button>
+                          </form>
+                        </div>
+                      ) : (
+                        <span className="text-slate-gray">—</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
                 {recentTx.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-gray">
+                    <TableCell colSpan={6} className="py-8 text-center text-sm text-slate-gray">
                       Belum ada transaksi.
                     </TableCell>
                   </TableRow>
@@ -429,4 +465,3 @@ export default async function AdminUserDetailPage({
     </div>
   );
 }
-
