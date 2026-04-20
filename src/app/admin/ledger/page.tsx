@@ -2,9 +2,6 @@ import Link from "next/link";
 
 import { desc, eq, sql } from "drizzle-orm";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { adminTokenEvents, users } from "@/lib/db/schema";
@@ -24,8 +21,7 @@ export default async function AdminLedgerPage({
 }) {
   await requireAdmin();
   const sp = await searchParams;
-  const qRaw = Array.isArray(sp.q) ? sp.q[0] : sp.q;
-  const q = qRaw?.trim() ? qRaw.trim() : "";
+  const q = ((Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? "").trim();
 
   const where =
     q.length > 0
@@ -35,90 +31,95 @@ export default async function AdminLedgerPage({
   const db = getDb();
   const rows = await db
     .select({
-      id: adminTokenEvents.id,
-      userId: adminTokenEvents.userId,
-      userEmail: users.email,
-      adminEmail: adminTokenEvents.adminEmail,
-      kind: adminTokenEvents.kind,
-      delta: adminTokenEvents.delta,
+      id:            adminTokenEvents.id,
+      userId:        adminTokenEvents.userId,
+      userEmail:     users.email,
+      adminEmail:    adminTokenEvents.adminEmail,
+      kind:          adminTokenEvents.kind,
+      delta:         adminTokenEvents.delta,
       balanceBefore: adminTokenEvents.balanceBefore,
-      balanceAfter: adminTokenEvents.balanceAfter,
-      note: adminTokenEvents.note,
-      createdAt: adminTokenEvents.createdAt
+      balanceAfter:  adminTokenEvents.balanceAfter,
+      note:          adminTokenEvents.note,
+      createdAt:     adminTokenEvents.createdAt
     })
     .from(adminTokenEvents)
     .leftJoin(users, eq(users.id, adminTokenEvents.userId))
     .where(where)
     .orderBy(desc(adminTokenEvents.createdAt))
-    .limit(250);
+    .limit(300);
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <CardTitle>Token Log</CardTitle>
-            <div className="mt-1 text-sm text-slate-gray">{rows.length} event</div>
-          </div>
-          <form className="w-full max-w-sm">
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder="Cari email / userId…"
-              className="w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-            />
-          </form>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table className="min-w-[1100px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Waktu</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Aksi</TableHead>
-                <TableHead>Delta</TableHead>
-                <TableHead>Before → After</TableHead>
-                <TableHead>Catatan</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-[#111112]">Token Log</h1>
+          <p className="mt-0.5 text-xs text-[#6b7280]">{rows.length} event · audit trail (read-only)</p>
+        </div>
+        <form method="get" action="/admin/ledger" className="flex items-center gap-2">
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="Cari email / userId…"
+            className="w-52 rounded border border-[#e4e5ea] bg-white px-3 py-1.5 text-sm placeholder:text-[#9ca3af] focus:border-[#111112] focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="rounded border border-[#e4e5ea] bg-white px-3 py-1.5 text-sm font-medium text-[#1b1c1f] hover:bg-[#f5f5f7]"
+          >
+            Cari
+          </button>
+        </form>
+      </div>
+
+      <div className="border border-[#e4e5ea] bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Waktu</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">User</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Aksi</th>
+                <th className="w-16 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Delta</th>
+                <th className="w-28 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Before→After</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Catatan</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e4e5ea]">
               {rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="text-xs">{fmt(r.createdAt)}</TableCell>
-                  <TableCell className="text-near-black">
+                <tr key={r.id} className="hover:bg-[#f5f5f7]/60">
+                  <td className="px-4 py-2.5 text-xs text-[#6b7280]">{fmt(r.createdAt)}</td>
+                  <td className="px-4 py-2.5">
                     <Link
                       href={`/admin/users/${r.userId}`}
-                      className="block font-semibold text-expo-black hover:underline"
+                      className="text-sm font-medium text-[#1b1c1f] hover:underline"
                     >
                       {r.userEmail ?? r.userId}
                     </Link>
-                    <div className="mt-0.5 text-[11px] text-slate-gray">{r.userId}</div>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    <Badge variant="outline">{r.kind}</Badge>
-                    <div className="mt-1 text-[11px] text-slate-gray">by {r.adminEmail}</div>
-                  </TableCell>
-                  <TableCell className={`text-xs font-semibold ${r.delta >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                    <div className="text-[11px] text-[#6b7280]">by {r.adminEmail}</div>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="rounded bg-[#f5f5f7] px-1.5 py-0.5 text-[11px] font-medium text-[#1b1c1f]">
+                      {r.kind}
+                    </span>
+                  </td>
+                  <td className={`px-4 py-2.5 text-right text-sm font-semibold ${r.delta >= 0 ? "text-green-700" : "text-red-600"}`}>
                     {r.delta >= 0 ? `+${r.delta}` : r.delta}
-                  </TableCell>
-                  <TableCell className="text-xs text-near-black">
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-[#1b1c1f]">
                     {r.balanceBefore} → {r.balanceAfter}
-                  </TableCell>
-                  <TableCell className="text-xs">{r.note ?? "—"}</TableCell>
-                </TableRow>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-[#6b7280]">{r.note ?? "—"}</td>
+                </tr>
               ))}
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-gray">
-                    Belum ada event.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-[#6b7280]">Belum ada event.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
-

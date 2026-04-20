@@ -1,6 +1,5 @@
 import { and, isNotNull, lte, or, sql } from "drizzle-orm";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { adminCleanupExpiredAnalysisSnapshots, adminCleanupOldOtpCodes } from "@/app/admin/maintenance/actions";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
@@ -14,131 +13,111 @@ function fmt(dt: Date | null | undefined) {
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
 
+const inputCls =
+  "w-full rounded border border-[#e4e5ea] bg-white px-3 py-2 text-sm text-[#1b1c1f] placeholder:text-[#9ca3af] focus:border-[#111112] focus:outline-none";
+const labelCls =
+  "block mb-1 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]";
+
 export default async function AdminMaintenancePage() {
   await requireAdmin();
   const db = getDb();
 
   const now = new Date();
-  const expiredSnapshots = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(analysisSnapshots)
-    .where(lte(analysisSnapshots.expiresAt, now))
-    .limit(1);
-
   const otpDays = 14;
   const otpCutoff = new Date(Date.now() - otpDays * 24 * 60 * 60_000);
-  const oldOtps = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(authOtpCodes)
-    .where(
-      or(
+
+  const [expiredSnapshots, oldOtps] = await Promise.all([
+    db.select({ count: sql<number>`count(*)`.as("count") })
+      .from(analysisSnapshots)
+      .where(lte(analysisSnapshots.expiresAt, now))
+      .limit(1),
+
+    db.select({ count: sql<number>`count(*)`.as("count") })
+      .from(authOtpCodes)
+      .where(or(
         lte(authOtpCodes.expiresAt, otpCutoff),
         and(isNotNull(authOtpCodes.consumedAt), lte(authOtpCodes.createdAt, otpCutoff))
-      )
-    )
-    .limit(1);
+      ))
+      .limit(1)
+  ]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-gray">
-          Admin
+        <h1 className="text-xl font-bold text-[#111112]">Maintenance</h1>
+        <p className="mt-0.5 text-xs text-[#6b7280]">
+          Housekeeping aman. Ketik <strong className="text-[#1b1c1f]">DELETE</strong> untuk konfirmasi sebelum eksekusi.
+        </p>
+      </div>
+
+      {/* Snapshots */}
+      <div className="border border-[#e4e5ea] bg-white">
+        <div className="border-b border-[#e4e5ea] px-4 py-3">
+          <div className="text-sm font-semibold text-[#111112]">Cleanup Analysis Snapshots</div>
+          <div className="mt-0.5 text-xs text-[#6b7280]">
+            Menghapus snapshot yang sudah expired berdasarkan <code className="font-mono">expiresAt</code>.
+          </div>
         </div>
-        <h1 className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-          Maintenance
-        </h1>
-        <div className="mt-1 text-xs text-slate-gray">
-          Housekeeping aman (tanpa akses SQL bebas / drop database). Konfirmasi dengan mengetik{" "}
-          <span className="font-semibold text-near-black">DELETE</span>.
+        <div className="px-4 py-4 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[#6b7280]">Expired snapshots</span>
+            <span className="font-semibold text-[#111112]">{expiredSnapshots[0]?.count ?? 0}</span>
+          </div>
+          <form action={adminCleanupExpiredAnalysisSnapshots} className="flex gap-2">
+            <input name="confirm" placeholder="Ketik DELETE…" className={`${inputCls} max-w-xs`} />
+            <button
+              type="submit"
+              className="shrink-0 rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Cleanup
+            </button>
+          </form>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Cleanup Analysis Snapshots</CardTitle>
-          <div className="mt-1 text-sm text-slate-gray">
-            Menghapus snapshot yang sudah expired berdasarkan <code className="text-xs">expiresAt</code>.
+      {/* OTP */}
+      <div className="border border-[#e4e5ea] bg-white">
+        <div className="border-b border-[#e4e5ea] px-4 py-3">
+          <div className="text-sm font-semibold text-[#111112]">Cleanup OTP Codes</div>
+          <div className="mt-0.5 text-xs text-[#6b7280]">
+            Menghapus OTP expired dan OTP consumed berumur lebih dari N hari.
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="rounded-2xl border border-border-lavender bg-white px-4 py-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-expo-black">Expired snapshots</div>
-              <div className="font-bold text-near-black">{expiredSnapshots[0]?.count ?? 0}</div>
-            </div>
-            <div className="mt-1 text-xs text-slate-gray">
-              Cek terakhir: <span className="text-near-black">{fmt(new Date())}</span>
-            </div>
+        </div>
+        <div className="px-4 py-4 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-[#6b7280]">OTP eligible (default {otpDays} hari)</span>
+            <span className="font-semibold text-[#111112]">{oldOtps[0]?.count ?? 0}</span>
           </div>
-
-          <form action={adminCleanupExpiredAnalysisSnapshots} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              name="confirm"
-              placeholder="Ketik DELETE…"
-              className="w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10 sm:w-56"
-            />
-            <button
-              type="submit"
-              className="rounded-xl bg-expo-black px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
-            >
-              Cleanup snapshots
-            </button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Cleanup OTP Codes</CardTitle>
-          <div className="mt-1 text-sm text-slate-gray">
-            Menghapus OTP expired dan OTP yang sudah consumed dan berumur lebih dari N hari.
+          <div className="text-xs text-[#6b7280]">
+            Cutoff: {fmt(otpCutoff)}
           </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="rounded-2xl border border-border-lavender bg-white px-4 py-3 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-semibold text-expo-black">OTP eligible (default {otpDays} hari)</div>
-              <div className="font-bold text-near-black">{oldOtps[0]?.count ?? 0}</div>
-            </div>
-            <div className="mt-1 text-xs text-slate-gray">
-              Cutoff: <span className="text-near-black">{fmt(otpCutoff)}</span>
-            </div>
-          </div>
-
-          <form action={adminCleanupOldOtpCodes} className="grid gap-2 sm:grid-cols-[160px_1fr_auto] sm:items-end">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                Days
-              </div>
+          <form action={adminCleanupOldOtpCodes} className="flex flex-wrap gap-2">
+            <div className="w-24">
+              <label className={labelCls}>Days</label>
               <input
                 name="days"
                 type="number"
                 min={1}
                 max={90}
                 defaultValue={otpDays}
-                className="mt-1 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
+                className={inputCls}
               />
             </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                Confirm
-              </div>
-              <input
-                name="confirm"
-                placeholder="Ketik DELETE…"
-                className="mt-1 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-              />
+            <div className="flex-1">
+              <label className={labelCls}>Confirm</label>
+              <input name="confirm" placeholder="Ketik DELETE…" className={inputCls} />
             </div>
-            <button
-              type="submit"
-              className="rounded-xl bg-expo-black px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
-            >
-              Cleanup OTP
-            </button>
+            <div className="flex items-end">
+              <button
+                type="submit"
+                className="rounded bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Cleanup
+              </button>
+            </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
-

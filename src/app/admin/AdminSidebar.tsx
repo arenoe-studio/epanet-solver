@@ -6,43 +6,123 @@ import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
 
+/* ── nav items ─────────────────────────────────────────────────── */
 const nav = [
-  { href: "/admin", label: "Overview" },
-  { href: "/admin/users", label: "Users" },
-  { href: "/admin/payments", label: "Payments" },
-  { href: "/admin/reports", label: "Laporan" },
-  { href: "/admin/ledger", label: "Token Log" },
-  { href: "/admin/health", label: "Health" },
-  { href: "/admin/maintenance", label: "Maintenance" }
+  {
+    href: "/admin",
+    label: "Overview",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+        <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+        <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+        <rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/users",
+    label: "Users",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/payments",
+    label: "Payments",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <rect x="1" y="3.5" width="14" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M1 7h14" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/reports",
+    label: "Laporan",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M2 2h12v9H9l-3 3V11H2V2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/ledger",
+    label: "Token Log",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M3 4h10M3 8h10M3 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/health",
+    label: "Health",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M1 8h2.5l2-5 3 10 2-5H15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  },
+  {
+    href: "/admin/maintenance",
+    label: "Maintenance",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    )
+  }
 ];
 
-export function AdminSidebar(props: { email: string; onNavigate: () => void }) {
+/* ── component ──────────────────────────────────────────────────── */
+export function AdminSidebar(props: {
+  email: string;
+  collapsed: boolean;
+  onCollapse: () => void;
+  onNavigate: () => void;
+}) {
   const pathname = usePathname();
+  const { collapsed } = props;
 
   return (
-    <aside className="rounded-3xl border border-border-lavender bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-            Admin
+    <aside className="flex h-full flex-col">
+      {/* Header */}
+      <div className={cn(
+        "flex items-center border-b border-[#e4e5ea] py-3",
+        collapsed ? "justify-center px-0" : "justify-between px-4 gap-2"
+      )}>
+        {!collapsed && (
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Admin</div>
+            <div className="truncate text-sm font-bold text-[#111112]">Root Panel</div>
+            <div className="truncate text-[11px] text-[#6b7280]">{props.email}</div>
           </div>
-          <div className="mt-1 truncate text-base font-bold tracking-[-0.03em] text-expo-black">
-            Root Panel
-          </div>
-          <div className="mt-1 truncate text-xs text-slate-gray">
-            {props.email}
-          </div>
-        </div>
-        <Link
-          href="/"
-          className="shrink-0 rounded-xl border border-border-lavender bg-white px-3 py-1.5 text-xs font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98]"
-          onClick={props.onNavigate}
+        )}
+        <button
+          type="button"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={props.onCollapse}
+          className="shrink-0 rounded-md p-1 text-[#6b7280] hover:bg-[#f5f5f7] hover:text-[#111112]"
         >
-          Back
-        </Link>
+          {collapsed ? (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 3l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
       </div>
 
-      <nav aria-label="Admin" className="mt-4 flex flex-col gap-1">
+      {/* Nav */}
+      <nav aria-label="Admin" className="flex flex-1 flex-col gap-0.5 p-2">
         {nav.map((item) => {
           const active =
             item.href === "/admin"
@@ -53,32 +133,56 @@ export function AdminSidebar(props: { email: string; onNavigate: () => void }) {
               key={item.href}
               href={item.href}
               onClick={props.onNavigate}
+              title={collapsed ? item.label : undefined}
               className={cn(
-                "rounded-2xl px-3 py-2 text-sm transition",
+                "flex items-center gap-2.5 rounded-md px-2 py-2 text-sm",
                 active
-                  ? "bg-cloud-gray font-semibold text-expo-black"
-                  : "text-slate-gray hover:bg-cloud-gray hover:text-expo-black"
+                  ? "bg-[#f5f5f7] font-semibold text-[#111112]"
+                  : "text-[#6b7280] hover:bg-[#f5f5f7] hover:text-[#111112]",
+                collapsed && "justify-center px-0"
               )}
             >
-              {item.label}
+              <span className="shrink-0">{item.icon}</span>
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           );
         })}
       </nav>
 
-      <div className="mt-4 border-t border-border-lavender pt-4">
+      {/* Footer */}
+      <div className={cn(
+        "border-t border-[#e4e5ea] p-2 space-y-1",
+      )}>
+        {!collapsed && (
+          <Link
+            href="/"
+            onClick={props.onNavigate}
+            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm text-[#6b7280] hover:bg-[#f5f5f7] hover:text-[#111112]"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10 12L5 8l5-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Kembali ke App
+          </Link>
+        )}
         <button
           type="button"
-          className="w-full rounded-2xl bg-expo-black px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
+          title={collapsed ? "Keluar" : undefined}
           onClick={() => {
             props.onNavigate();
             void signOut({ callbackUrl: "/" });
           }}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm text-[#6b7280] hover:bg-red-50 hover:text-red-700",
+            collapsed && "justify-center px-0"
+          )}
         >
-          Keluar
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M6 2H3a1 1 0 00-1 1v10a1 1 0 001 1h3M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {!collapsed && <span>Keluar</span>}
         </button>
       </div>
     </aside>
   );
 }
-

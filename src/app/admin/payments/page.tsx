@@ -2,9 +2,6 @@ import Link from "next/link";
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminUpdateTransaction } from "@/app/admin/actions";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
@@ -18,17 +15,22 @@ function fmt(dt: Date | null | undefined) {
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
 
-function statusBadge(status: string | null | undefined) {
-  if (status === "paid") return <Badge variant="outline">paid</Badge>;
-  if (status === "failed") return <Badge className="bg-red-600 text-white">failed</Badge>;
-  return <Badge className="bg-amber-500 text-white">pending</Badge>;
-}
-
 function endOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(23, 59, 59, 999);
   return x;
 }
+
+const FILTERS = [
+  { id: "all",          label: "Semua" },
+  { id: "pending",      label: "Pending" },
+  { id: "paid",         label: "Paid" },
+  { id: "failed",       label: "Failed" },
+  { id: "pending_old",  label: "Pending > 1 jam" },
+  { id: "paid_today",   label: "Paid hari ini" }
+] as const;
+
+type FilterId = typeof FILTERS[number]["id"];
 
 export default async function AdminPaymentsPage({
   searchParams
@@ -37,260 +39,260 @@ export default async function AdminPaymentsPage({
 }) {
   await requireAdmin();
   const sp = await searchParams;
-  const qRaw = Array.isArray(sp.q) ? sp.q[0] : sp.q;
-  const q = qRaw?.trim() ? qRaw.trim() : "";
-  const statusRaw = Array.isArray(sp.status) ? sp.status[0] : sp.status;
-  const status =
-    statusRaw === "pending" || statusRaw === "paid" || statusRaw === "failed"
-      ? statusRaw
-      : "all";
 
+  const q       = ((Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? "").trim();
+  const rawFilter = (Array.isArray(sp.filter) ? sp.filter[0] : sp.filter) ?? "";
+  const filter: FilterId = (FILTERS.some((f) => f.id === rawFilter) ? rawFilter : "all") as FilterId;
   const fromRaw = Array.isArray(sp.from) ? sp.from[0] : sp.from;
-  const toRaw = Array.isArray(sp.to) ? sp.to[0] : sp.to;
-  const from = fromRaw ? new Date(fromRaw) : null;
-  const to = toRaw ? new Date(toRaw) : null;
+  const toRaw   = Array.isArray(sp.to)   ? sp.to[0]   : sp.to;
+  const from    = fromRaw ? new Date(fromRaw) : null;
+  const to      = toRaw   ? new Date(toRaw)   : null;
 
   const db = getDb();
+  const now     = Date.now();
+  const since1h = new Date(now - 60 * 60_000);
+  const today   = new Date(new Date().setHours(0, 0, 0, 0));
 
-  const whereParts = [];
-  if (status !== "all") whereParts.push(eq(transactions.status, status));
-  if (q.length > 0) {
-    whereParts.push(
+  /* ── where ──────────────────────────────────────────────────── */
+  const conditions = [];
+
+  if (filter === "pending")      conditions.push(eq(transactions.status, "pending"));
+  if (filter === "paid")         conditions.push(eq(transactions.status, "paid"));
+  if (filter === "failed")       conditions.push(eq(transactions.status, "failed"));
+  if (filter === "pending_old")  conditions.push(and(eq(transactions.status, "pending"), lte(transactions.createdAt, since1h))!);
+  if (filter === "paid_today")   conditions.push(and(eq(transactions.status, "paid"), gte(transactions.paidAt, today))!);
+
+  if (q) {
+    conditions.push(
       sql`lower(${transactions.orderId}) like ${`%${q.toLowerCase()}%`} or lower(coalesce(${users.email}, '')) like ${`%${q.toLowerCase()}%`}`
     );
   }
-  if (from && !Number.isNaN(from.getTime())) {
-    whereParts.push(gte(transactions.createdAt, from));
-  }
-  if (to && !Number.isNaN(to.getTime())) {
-    whereParts.push(lte(transactions.createdAt, endOfDay(to)));
-  }
-
-  const where = whereParts.length > 0 ? and(...whereParts) : undefined;
+  if (from && !Number.isNaN(from.getTime())) conditions.push(gte(transactions.createdAt, from));
+  if (to   && !Number.isNaN(to.getTime()))   conditions.push(lte(transactions.createdAt, endOfDay(to)));
 
   const rows = await db
     .select({
-      id: transactions.id,
-      orderId: transactions.orderId,
-      status: transactions.status,
+      id:            transactions.id,
+      orderId:       transactions.orderId,
+      status:        transactions.status,
       paymentMethod: transactions.paymentMethod,
-      amount: transactions.amount,
-      tokens: transactions.tokens,
-      createdAt: transactions.createdAt,
-      paidAt: transactions.paidAt,
-      userId: transactions.userId,
-      userEmail: users.email
+      package:       transactions.package,
+      amount:        transactions.amount,
+      tokens:        transactions.tokens,
+      createdAt:     transactions.createdAt,
+      paidAt:        transactions.paidAt,
+      userId:        transactions.userId,
+      userEmail:     users.email
     })
     .from(transactions)
     .leftJoin(users, eq(users.id, transactions.userId))
-    .where(where)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(transactions.createdAt))
-    .limit(250);
+    .limit(300);
 
-  const pendingOld = rows.filter((r) => r.status === "pending" && r.createdAt && Date.now() - +new Date(r.createdAt) > 60 * 60_000)
-    .length;
+  const pendingOldCount = rows.filter(
+    (r) => r.status === "pending" && r.createdAt && Date.now() - +new Date(r.createdAt) > 60 * 60_000
+  ).length;
+
+  function chipHref(filterId: string) {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (filterId !== "all") p.set("filter", filterId);
+    if (fromRaw) p.set("from", fromRaw);
+    if (toRaw)   p.set("to", toRaw);
+    const s = p.toString();
+    return `/admin/payments${s ? `?${s}` : ""}`;
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-3">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-gray">
-            Admin
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-            Payments
-          </h1>
-          <div className="mt-1 text-xs text-slate-gray">
-            Total: <span className="font-semibold text-near-black">{rows.length}</span>
-            {pendingOld > 0 ? (
-              <>
-                {" "}· <span className="font-semibold text-amber-700">{pendingOld} pending &gt; 1 jam</span>
-              </>
-            ) : null}
-          </div>
+          <h1 className="text-xl font-bold text-[#111112]">Payments</h1>
+          <p className="mt-0.5 text-xs text-[#6b7280]">
+            {rows.length} transaksi
+            {pendingOldCount > 0 && (
+              <span className="ml-2 font-semibold text-amber-700">· {pendingOldCount} pending &gt; 1 jam</span>
+            )}
+          </p>
         </div>
-        <Link
-          href="/admin"
-          className="hidden rounded-xl border border-border-lavender bg-white px-3 py-2 text-sm font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98] sm:inline-flex"
-        >
-          Overview
-        </Link>
+        {/* Search + date */}
+        <form method="get" action="/admin/payments" className="flex items-center gap-2">
+          {filter !== "all" && <input type="hidden" name="filter" value={filter} />}
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="orderId / email…"
+            className="w-48 rounded border border-[#e4e5ea] bg-white px-3 py-1.5 text-sm placeholder:text-[#9ca3af] focus:border-[#111112] focus:outline-none"
+          />
+          <input
+            type="date"
+            name="from"
+            defaultValue={fromRaw ?? ""}
+            className="rounded border border-[#e4e5ea] bg-white px-2 py-1.5 text-sm focus:border-[#111112] focus:outline-none"
+          />
+          <input
+            type="date"
+            name="to"
+            defaultValue={toRaw ?? ""}
+            className="rounded border border-[#e4e5ea] bg-white px-2 py-1.5 text-sm focus:border-[#111112] focus:outline-none"
+          />
+          <button
+            type="submit"
+            className="rounded border border-[#e4e5ea] bg-white px-3 py-1.5 text-sm font-medium text-[#1b1c1f] hover:bg-[#f5f5f7]"
+          >
+            Cari
+          </button>
+        </form>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <CardTitle>Transactions</CardTitle>
-            <div className="mt-1 text-sm text-slate-gray">
-              Filter cepat untuk pending/paid/failed + pencarian orderId/email.
-            </div>
-          </div>
-          <form className="grid w-full gap-2 sm:w-auto sm:grid-cols-4 sm:items-end">
-            <div className="sm:col-span-2">
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                Search
-              </div>
-              <input
-                name="q"
-                defaultValue={q}
-                placeholder="orderId / email…"
-                className="mt-1 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-              />
-            </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                Status
-              </div>
-              <select
-                name="status"
-                defaultValue={status}
-                className="mt-1 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-              >
-                <option value="all">all</option>
-                <option value="pending">pending</option>
-                <option value="paid">paid</option>
-                <option value="failed">failed</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  From
-                </div>
-                <input
-                  type="date"
-                  name="from"
-                  defaultValue={fromRaw ?? ""}
-                  className="mt-1 w-full rounded-xl border border-input-border bg-white px-3 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                />
-              </div>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  To
-                </div>
-                <input
-                  type="date"
-                  name="to"
-                  defaultValue={toRaw ?? ""}
-                  className="mt-1 w-full rounded-xl border border-input-border bg-white px-3 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                />
-              </div>
-            </div>
-          </form>
-        </CardHeader>
+      {/* Filter chips */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#e4e5ea] bg-[#f5f5f7] px-4 py-2">
+        {FILTERS.map((f) => (
+          <Link
+            key={f.id}
+            href={chipHref(f.id)}
+            className={`rounded border px-2 py-0.5 text-xs font-medium ${
+              filter === f.id
+                ? "border-[#111112] bg-[#111112] text-white"
+                : "border-[#e4e5ea] bg-white text-[#1b1c1f] hover:border-[#6b7280]"
+            }`}
+          >
+            {f.label}
+          </Link>
+        ))}
+      </div>
 
-        <CardContent className="overflow-x-auto">
-          <Table className="min-w-[1100px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Order</TableHead>
-                <TableHead>User</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Waktu</TableHead>
-                <TableHead>Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+      {/* Table */}
+      <div className="border border-[#e4e5ea] bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Order</th>
+                <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">User</th>
+                <th className="w-28 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Amount</th>
+                <th className="w-28 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Status</th>
+                <th className="w-36 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Waktu</th>
+                <th className="w-36 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e4e5ea]">
               {rows.map((row) => {
-                const createdAt = row.createdAt ? new Date(row.createdAt) : null;
                 const isPendingOld =
                   row.status === "pending" &&
-                  createdAt &&
-                  Date.now() - +createdAt > 60 * 60_000;
+                  row.createdAt &&
+                  Date.now() - +new Date(row.createdAt) > 60 * 60_000;
 
                 return (
-                  <TableRow key={row.id}>
-                    <TableCell className="text-near-black">
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold text-expo-black">
-                          {row.orderId}
-                        </div>
-                        <div className="mt-0.5 truncate text-xs text-slate-gray">
-                          tokens {row.tokens ?? 0} · method {row.paymentMethod ?? "—"}
-                        </div>
+                  <tr key={row.id} className="hover:bg-[#f5f5f7]/60">
+                    {/* Order */}
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-[#111112]">{row.orderId}</div>
+                      <div className="text-xs text-[#6b7280]">
+                        {row.tokens ?? 0} token · {row.package ?? "—"} · {row.paymentMethod ?? "—"}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="truncate text-near-black">
-                        {row.userEmail ?? "—"}
-                      </div>
-                      {row.userId ? (
+                    </td>
+
+                    {/* User */}
+                    <td className="px-4 py-2.5">
+                      <div className="text-sm text-[#1b1c1f]">{row.userEmail ?? "—"}</div>
+                      {row.userId && (
                         <Link
                           href={`/admin/users/${row.userId}`}
-                          className="mt-0.5 inline-block truncate text-xs text-link-cobalt hover:underline"
+                          className="text-xs text-[#6b7280] hover:underline"
                         >
-                          {row.userId}
+                          Lihat user →
                         </Link>
-                      ) : (
-                        <div className="mt-0.5 text-xs text-slate-gray">—</div>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-semibold text-near-black">
-                        Rp {(row.amount ?? 0).toLocaleString("id-ID")}
+                    </td>
+
+                    {/* Amount */}
+                    <td className="px-4 py-2.5 text-right font-semibold text-[#111112]">
+                      Rp {(row.amount ?? 0).toLocaleString("id-ID")}
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          row.status === "paid"
+                            ? "bg-green-50 text-green-700"
+                            : row.status === "failed"
+                              ? "bg-red-50 text-red-700"
+                              : "bg-amber-50 text-amber-700"
+                        }`}>{row.status ?? "—"}</span>
+                        {isPendingOld && (
+                          <span className="text-[11px] font-semibold text-amber-700">lama</span>
+                        )}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {statusBadge(row.status)}
-                        {isPendingOld ? (
-                          <span className="text-xs font-semibold text-amber-700">
-                            pending lama
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-gray">
-                      <div>
-                        dibuat: <span className="text-near-black">{fmt(row.createdAt)}</span>
-                      </div>
-                      <div className="mt-0.5">
-                        paid: <span className="text-near-black">{fmt(row.paidAt)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <form action={adminUpdateTransaction} className="flex items-center gap-2">
-                        <input type="hidden" name="transactionId" value={row.id} />
-                        <select
-                          name="status"
-                          defaultValue={(row.status as any) ?? "pending"}
-                          className="rounded-xl border border-input-border bg-white px-2.5 py-2 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                        >
-                          <option value="pending">pending</option>
-                          <option value="paid">paid</option>
-                          <option value="failed">failed</option>
-                        </select>
-                        <input
-                          name="paymentMethod"
-                          defaultValue={row.paymentMethod ?? ""}
-                          placeholder="method…"
-                          className="w-40 rounded-xl border border-input-border bg-white px-3 py-2 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                        />
-                        <button
-                          type="submit"
-                          className="rounded-xl bg-expo-black px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 active:scale-[0.98]"
-                        >
-                          Save
-                        </button>
-                      </form>
-                    </TableCell>
-                  </TableRow>
+                    </td>
+
+                    {/* Time */}
+                    <td className="px-4 py-2.5 text-xs text-[#6b7280]">
+                      <div>dibuat: {fmt(row.createdAt)}</div>
+                      {row.paidAt && <div>paid: {fmt(row.paidAt)}</div>}
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-2.5">
+                      {row.status === "pending" ? (
+                        <div className="flex gap-1.5">
+                          <form action={adminUpdateTransaction}>
+                            <input type="hidden" name="transactionId" value={row.id} />
+                            <input type="hidden" name="status" value="paid" />
+                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
+                            <button
+                              type="submit"
+                              onClick={(e) => {
+                                if (!confirm(`Set PAID: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`)) {
+                                  e.preventDefault();
+                                }
+                              }}
+                              className="rounded bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
+                            >
+                              Set Paid
+                            </button>
+                          </form>
+                          <form action={adminUpdateTransaction}>
+                            <input type="hidden" name="transactionId" value={row.id} />
+                            <input type="hidden" name="status" value="failed" />
+                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
+                            <button
+                              type="submit"
+                              onClick={(e) => {
+                                if (!confirm(`Set FAILED: ${row.orderId}?`)) {
+                                  e.preventDefault();
+                                }
+                              }}
+                              className="rounded border border-[#e4e5ea] px-2.5 py-1 text-xs font-medium text-[#6b7280] hover:bg-[#f5f5f7]"
+                            >
+                              Set Failed
+                            </button>
+                          </form>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[#6b7280]">—</span>
+                      )}
+                    </td>
+                  </tr>
                 );
               })}
-
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-gray">
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-[#6b7280]">
                     Tidak ada transaksi.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="border-t border-[#e4e5ea] px-4 py-2 text-xs text-[#6b7280]">
+          Menampilkan {rows.length} transaksi
+        </div>
+      </div>
     </div>
   );
 }
-

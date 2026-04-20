@@ -1,13 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
-import { analyses, contactMessages, transactions } from "@/lib/db/schema";
+import { analyses, contactMessages, transactions, users } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,259 +14,285 @@ function fmt(dt: Date | null | undefined) {
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
 
-type AlertLevel = "ok" | "warn" | "down";
+type AlertItem = {
+  level: "danger" | "warn" | "info";
+  title: string;
+  detail: string;
+  href: string;
+  count: number;
+};
 
-export default async function AdminOverviewPage({
-  searchParams
-}: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function AdminOverviewPage() {
   await requireAdmin();
-  const sp = searchParams ? await searchParams : null;
-  const qRaw = sp ? (Array.isArray(sp.q) ? sp.q[0] : sp.q) : undefined;
-  const q = qRaw?.trim() ? qRaw.trim() : "";
-  if (q) {
-    redirect(`/admin/users?q=${encodeURIComponent(q)}`);
-  }
 
   const db = getDb();
-
   const now = Date.now();
   const since24h = new Date(now - 24 * 60 * 60_000);
-  const since7d = new Date(now - 7 * 24 * 60 * 60_000);
+  const since7d  = new Date(now - 7 * 24 * 60 * 60_000);
   const since30m = new Date(now - 30 * 60_000);
-  const since1h = new Date(now - 60 * 60_000);
+  const since1h  = new Date(now - 60 * 60_000);
+  const today    = new Date(new Date().setHours(0, 0, 0, 0));
 
-  const active7d = await db
-    .select({ count: sql<number>`count(distinct ${analyses.userId})`.as("count") })
-    .from(analyses)
-    .where(gte(analyses.createdAt, since7d))
-    .limit(1);
+  const [
+    activeUsers7d,
+    analyses24h,
+    analyses7d,
+    failed7d,
+    stuckProcessing,
+    paid7d,
+    pendingOld,
+    openReports,
+    newUsersToday,
+    paidToday
+  ] = await Promise.all([
+    db.select({ count: sql<number>`count(distinct ${analyses.userId})` })
+      .from(analyses).where(gte(analyses.createdAt, since7d)).limit(1),
 
-  const analyses24h = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(analyses)
-    .where(gte(analyses.createdAt, since24h))
-    .limit(1);
+    db.select({ count: sql<number>`count(*)` })
+      .from(analyses).where(gte(analyses.createdAt, since24h)).limit(1),
 
-  const analyses7d = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(analyses)
-    .where(gte(analyses.createdAt, since7d))
-    .limit(1);
+    db.select({ count: sql<number>`count(*)` })
+      .from(analyses).where(gte(analyses.createdAt, since7d)).limit(1),
 
-  const failed7d = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(analyses)
-    .where(and(eq(analyses.status, "failed"), gte(analyses.createdAt, since7d)))
-    .limit(1);
+    db.select({ count: sql<number>`count(*)` })
+      .from(analyses)
+      .where(and(eq(analyses.status, "failed"), gte(analyses.createdAt, since7d)))
+      .limit(1),
 
-  const stuckProcessing = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(analyses)
-    .where(and(eq(analyses.status, "processing"), gte(analyses.createdAt, since7d), sql`${analyses.createdAt} < ${since30m}`))
-    .limit(1);
+    db.select({ count: sql<number>`count(*)` })
+      .from(analyses)
+      .where(and(
+        eq(analyses.status, "processing"),
+        gte(analyses.createdAt, since7d),
+        sql`${analyses.createdAt} < ${since30m}`
+      ))
+      .limit(1),
 
-  const paid7d = await db
+    db.select({
+      count:  sql<number>`count(*)`,
+      amount: sql<number>`coalesce(sum(${transactions.amount}), 0)`
+    })
+      .from(transactions)
+      .where(and(eq(transactions.status, "paid"), gte(transactions.paidAt, since7d)))
+      .limit(1),
+
+    db.select({ count: sql<number>`count(*)` })
+      .from(transactions)
+      .where(and(eq(transactions.status, "pending"), sql`${transactions.createdAt} < ${since1h}`))
+      .limit(1),
+
+    db.select({ count: sql<number>`count(*)` })
+      .from(contactMessages).where(eq(contactMessages.status, "open")).limit(1),
+
+    db.select({ count: sql<number>`count(*)` })
+      .from(users).where(gte(users.createdAt, today)).limit(1),
+
+    db.select({ count: sql<number>`count(*)` })
+      .from(transactions)
+      .where(and(eq(transactions.status, "paid"), gte(transactions.paidAt, today)))
+      .limit(1)
+  ]);
+
+  /* ── recent paid transactions ─────────────────────────────────── */
+  const recentPaid = await db
     .select({
-      count: sql<number>`count(*)`.as("count"),
-      amount: sql<number | null>`coalesce(sum(${transactions.amount}), 0)`.as("amount")
+      id:            transactions.id,
+      orderId:       transactions.orderId,
+      tokens:        transactions.tokens,
+      amount:        transactions.amount,
+      paidAt:        transactions.paidAt,
+      userEmail:     users.email
     })
     .from(transactions)
-    .where(and(eq(transactions.status, "paid"), gte(transactions.paidAt, since7d)))
-    .limit(1);
+    .leftJoin(users, eq(users.id, transactions.userId))
+    .where(and(eq(transactions.status, "paid"), gte(transactions.paidAt, today)))
+    .orderBy(desc(transactions.paidAt))
+    .limit(5);
 
-  const pendingOld = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(transactions)
-    .where(and(eq(transactions.status, "pending"), sql`${transactions.createdAt} < ${since1h}`))
-    .limit(1);
+  /* ── build alert list ─────────────────────────────────────────── */
+  const alerts: AlertItem[] = [];
 
-  const openReports = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(contactMessages)
-    .where(eq(contactMessages.status, "open"))
-    .limit(1);
+  const pendingOldCount  = pendingOld[0]?.count  ?? 0;
+  const stuckCount       = stuckProcessing[0]?.count ?? 0;
+  const openReportCount  = openReports[0]?.count  ?? 0;
 
-  const alerts: Array<{
-    level: AlertLevel;
-    title: string;
-    detail: string;
-    href: string;
-  }> = [];
+  if (pendingOldCount > 0) alerts.push({
+    level: "warn",
+    title: "Pembayaran pending > 1 jam",
+    detail: `${pendingOldCount} transaksi belum dikonfirmasi lebih dari 1 jam.`,
+    href: "/admin/payments?filter=pending_old",
+    count: pendingOldCount
+  });
 
-  const pendingOldCount = pendingOld[0]?.count ?? 0;
-  if (pendingOldCount > 0) {
-    alerts.push({
-      level: "warn",
-      title: "Pembayaran pending lama",
-      detail: `${pendingOldCount} transaksi pending > 1 jam.`,
-      href: "/admin/payments?status=pending"
-    });
-  }
+  if (stuckCount > 0) alerts.push({
+    level: "warn",
+    title: "Analisis terindikasi macet",
+    detail: `${stuckCount} analisis masih berstatus "processing" selama > 30 menit.`,
+    href: "/admin/health",
+    count: stuckCount
+  });
 
-  const stuckCount = stuckProcessing[0]?.count ?? 0;
-  if (stuckCount > 0) {
-    alerts.push({
-      level: "warn",
-      title: "Analisis terindikasi macet",
-      detail: `${stuckCount} analysis status processing > 30 menit.`,
-      href: "/admin/health"
-    });
-  }
+  if (openReportCount > 0) alerts.push({
+    level: openReportCount >= 10 ? "warn" : "info",
+    title: "Laporan belum ditangani",
+    detail: `${openReportCount} laporan berstatus open.`,
+    href: "/admin/reports?status=open",
+    count: openReportCount
+  });
 
-  const openReportCount = openReports[0]?.count ?? 0;
-  if (openReportCount >= 10) {
-    alerts.push({
-      level: "warn",
-      title: "Banyak laporan belum ditangani",
-      detail: `${openReportCount} laporan masih open.`,
-      href: "/admin/reports"
-    });
-  }
+  /* ── metrics ──────────────────────────────────────────────────── */
+  const revenue7d    = paid7d[0]?.amount   ?? 0;
+  const paidCount7d  = paid7d[0]?.count    ?? 0;
+  const newUserCount = newUsersToday[0]?.count ?? 0;
+  const paidTodayCount = paidToday[0]?.count ?? 0;
 
-  if (alerts.length === 0) {
-    alerts.push({
-      level: "ok",
-      title: "Semuanya terlihat normal",
-      detail: `Terakhir dicek: ${fmt(new Date())}`,
-      href: "/admin/health"
-    });
-  }
-
-  function levelBadge(level: AlertLevel) {
-    if (level === "ok") return <Badge variant="outline">ok</Badge>;
-    if (level === "down") return <Badge className="bg-red-600 text-white">down</Badge>;
-    return <Badge className="bg-amber-500 text-white">warn</Badge>;
-  }
-
-  const revenue7d = paid7d[0]?.amount ?? 0;
-  const paidCount7d = paid7d[0]?.count ?? 0;
+  const dotColor: Record<AlertItem["level"], string> = {
+    danger: "bg-red-500",
+    warn:   "bg-amber-400",
+    info:   "bg-[#6b7280]"
+  };
+  const textColor: Record<AlertItem["level"], string> = {
+    danger: "text-red-700",
+    warn:   "text-amber-700",
+    info:   "text-[#6b7280]"
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-gray">
-            Admin
+    <div className="space-y-5">
+      {/* ── Metrics strip ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Aktif (7 hari)",     value: activeUsers7d[0]?.count  ?? 0 },
+          { label: "Analisis (24 jam)",  value: analyses24h[0]?.count    ?? 0 },
+          { label: "Transaksi paid (7h)", value: paidCount7d },
+          { label: "Revenue (7 hari)",   value: `Rp ${revenue7d.toLocaleString("id-ID")}` }
+        ].map((m) => (
+          <div key={m.label} className="border border-[#e4e5ea] bg-white px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">{m.label}</div>
+            <div className="mt-1 text-xl font-bold text-[#111112]">{m.value}</div>
           </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-            Overview
-          </h1>
-          <div className="mt-1 text-xs text-slate-gray">
-            Ringkasan cepat untuk operasional aplikasi.
-          </div>
-        </div>
-        <Link
-          href="/admin/health"
-          className="rounded-xl border border-border-lavender bg-white px-3 py-2 text-sm font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98]"
-        >
-          Refresh status
-        </Link>
+        ))}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Active Users (7d)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {active7d[0]?.count ?? 0}
-            </div>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Analyses (24h / 7d)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {analyses24h[0]?.count ?? 0} / {analyses7d[0]?.count ?? 0}
-            </div>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Failed (7d)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {failed7d[0]?.count ?? 0}
-            </div>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Revenue (7d)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              Rp {revenue7d.toLocaleString("id-ID")}
-            </div>
-            <div className="mt-1 text-xs text-slate-gray">
-              {paidCount7d} transaksi paid
-            </div>
-          </CardHeader>
-        </Card>
-      </div>
-
+      {/* ── Two-column body ── */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-expo-black">Alerts</div>
-              <Link href="/admin/health" className="text-sm text-link-cobalt hover:underline">
-                Health
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {alerts.map((a) => (
-              <Link
-                key={`${a.title}-${a.href}`}
-                href={a.href}
-                className="block rounded-2xl border border-border-lavender bg-white px-4 py-3 transition hover:bg-cloud-gray"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-expo-black">
-                      {a.title}
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-gray">{a.detail}</div>
-                  </div>
-                  <div className="shrink-0">{levelBadge(a.level)}</div>
-                </div>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="text-sm font-semibold text-expo-black">Quick Links</div>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            {[
-              { href: "/admin/users", label: "Users" },
-              { href: "/admin/payments", label: "Payments" },
-              { href: "/admin/reports", label: "Laporan" },
-              { href: "/admin/ledger", label: "Token Log" }
-            ].map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="rounded-2xl border border-border-lavender bg-white px-4 py-3 text-sm font-semibold text-near-black transition hover:bg-cloud-gray"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
+        {/* Alerts + Hari ini — left 2/3 */}
+        <div className="space-y-4 lg:col-span-2">
+
+          {/* Perlu Aksi */}
+          <div className="border border-[#e4e5ea] bg-white">
+            <div className="border-b border-[#e4e5ea] px-4 py-3">
+              <span className="text-sm font-semibold text-[#111112]">Perlu Aksi</span>
+            </div>
+            <div className="divide-y divide-[#e4e5ea]">
+              {alerts.length === 0 ? (
+                <div className="flex items-center gap-2 px-4 py-4 text-sm text-[#6b7280]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  Tidak ada yang perlu ditangani saat ini.
+                </div>
+              ) : (
+                alerts.map((a) => (
+                  <Link
+                    key={a.title}
+                    href={a.href}
+                    className="flex items-start justify-between gap-4 px-4 py-3 hover:bg-[#f5f5f7]"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${dotColor[a.level]}`} />
+                      <div>
+                        <div className={`text-sm font-medium ${textColor[a.level]}`}>{a.title}</div>
+                        <div className="mt-0.5 text-xs text-[#6b7280]">{a.detail}</div>
+                      </div>
+                    </div>
+                    <div className="shrink-0 rounded bg-[#f5f5f7] px-2 py-0.5 text-xs font-semibold text-[#1b1c1f]">
+                      {a.count} →
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Hari ini */}
+          <div className="border border-[#e4e5ea] bg-white">
+            <div className="border-b border-[#e4e5ea] px-4 py-3 text-sm font-semibold text-[#111112]">
+              Hari ini
+            </div>
+            <div className="divide-y divide-[#e4e5ea]">
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-[#1b1c1f]">User baru</span>
+                <span className="text-sm font-semibold text-[#111112]">{newUserCount}</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-[#1b1c1f]">Analyses (24 jam)</span>
+                <span className="text-sm font-semibold text-[#111112]">{analyses24h[0]?.count ?? 0}</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-[#1b1c1f]">Transaksi paid hari ini</span>
+                <span className="text-sm font-semibold text-[#111112]">{paidTodayCount}</span>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-sm text-[#1b1c1f]">Failed 7 hari</span>
+                <span className={`text-sm font-semibold ${(failed7d[0]?.count ?? 0) > 0 ? "text-amber-700" : "text-[#111112]"}`}>
+                  {failed7d[0]?.count ?? 0}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Paid hari ini */}
+          {recentPaid.length > 0 && (
+            <div className="border border-[#e4e5ea] bg-white">
+              <div className="flex items-center justify-between border-b border-[#e4e5ea] px-4 py-3">
+                <span className="text-sm font-semibold text-[#111112]">Pembayaran paid hari ini</span>
+                <Link href="/admin/payments?filter=paid_today" className="text-xs text-[#6b7280] hover:text-[#111112]">
+                  Lihat semua →
+                </Link>
+              </div>
+              <div className="divide-y divide-[#e4e5ea]">
+                {recentPaid.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#1b1c1f]">{t.userEmail ?? "—"}</div>
+                      <div className="text-xs text-[#6b7280]">{t.orderId} · {t.tokens ?? 0} token · {fmt(t.paidAt)}</div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold text-[#111112]">
+                      Rp {(t.amount ?? 0).toLocaleString("id-ID")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Nav shortcuts — right 1/3 */}
+        <div className="space-y-1">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">Navigasi cepat</div>
+          {[
+            { href: "/admin/users",       label: "Users",       sub: `${activeUsers7d[0]?.count ?? 0} aktif 7h` },
+            { href: "/admin/payments",    label: "Payments",    sub: `${paidCount7d} paid 7h` },
+            { href: "/admin/reports",     label: "Laporan",     sub: `${openReportCount} open` },
+            { href: "/admin/ledger",      label: "Token Log",   sub: "audit trail" },
+            { href: "/admin/health",      label: "Health",      sub: stuckCount > 0 ? `${stuckCount} stuck` : "ok" },
+            { href: "/admin/maintenance", label: "Maintenance", sub: "destructive ops" }
+          ].map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className="flex items-center justify-between border border-[#e4e5ea] bg-white px-4 py-3 hover:bg-[#f5f5f7]"
+            >
+              <span className="text-sm font-medium text-[#1b1c1f]">{l.label}</span>
+              <span className="text-xs text-[#6b7280]">{l.sub}</span>
+            </Link>
+          ))}
+        </div>
       </div>
 
-      <div className="text-xs text-slate-gray">
-        Terakhir render: <span className="text-near-black">{fmt(new Date())}</span>
+      {/* Footer timestamp */}
+      <div className="text-[11px] text-[#6b7280]">
+        Render: {fmt(new Date())}
       </div>
     </div>
   );

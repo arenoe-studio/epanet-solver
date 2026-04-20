@@ -1,10 +1,11 @@
 import Link from "next/link";
 
-import { desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, isNull, lte, sql } from "drizzle-orm";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { adminAdjustTokens } from "@/app/admin/actions";
+import { FilterBar } from "@/app/admin/users/_components/FilterBar";
+import { KeyboardNav } from "@/app/admin/users/_components/KeyboardNav";
+import { type PanelUser, UserDetailPanel } from "@/app/admin/users/_components/UserDetailPanel";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { analyses, contactMessages, tokenBalances, transactions, users } from "@/lib/db/schema";
@@ -17,6 +18,17 @@ function fmt(dt: Date | null | undefined) {
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
 
+function relativeTime(dt: Date | null | undefined): string {
+  if (!dt) return "—";
+  const diff = Date.now() - new Date(dt).getTime();
+  const h = Math.floor(diff / 3_600_000);
+  if (h < 1) return "< 1 jam lalu";
+  if (h < 24) return `${h} jam lalu`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} hari lalu`;
+  return fmt(dt);
+}
+
 export default async function AdminUsersPage({
   searchParams
 }: {
@@ -24,35 +36,81 @@ export default async function AdminUsersPage({
 }) {
   await requireAdmin();
   const sp = await searchParams;
-  const qRaw = Array.isArray(sp.q) ? sp.q[0] : sp.q;
-  const q = qRaw?.trim() ? qRaw.trim() : "";
+
+  const q = (Array.isArray(sp.q) ? sp.q[0] : sp.q)?.trim() ?? "";
+  const filter = (Array.isArray(sp.filter) ? sp.filter[0] : sp.filter)?.trim() ?? "";
+  const sort = (Array.isArray(sp.sort) ? sp.sort[0] : sp.sort)?.trim() ?? "created";
+  const dir = (Array.isArray(sp.dir) ? sp.dir[0] : sp.dir)?.trim() ?? "desc";
+  const selectedUserId = (Array.isArray(sp.user) ? sp.user[0] : sp.user)?.trim() ?? "";
 
   const db = getDb();
 
-  const lastAnalysis = db
+  /* ── sub-queries ─────────────────────────────────────────────── */
+  const lastAnalysisSq = db
     .select({
       userId: analyses.userId,
-      lastAnalysisAt: sql<Date | null>`max(${analyses.createdAt})`.as("lastAnalysisAt")
+      lastAt: sql<Date | null>`max(${analyses.createdAt})`.as("lastAt")
     })
     .from(analyses)
     .groupBy(analyses.userId)
-    .as("last_analysis");
+    .as("la");
 
-  const lastPaid = db
-    .select({
-      userId: transactions.userId,
-      lastPaidAt: sql<Date | null>`max(${transactions.paidAt})`.as("lastPaidAt")
-    })
-    .from(transactions)
-    .where(eq(transactions.status, "paid"))
-    .groupBy(transactions.userId)
-    .as("last_paid");
+  /* ── where conditions ────────────────────────────────────────── */
+  const conditions = [];
 
-  const where =
-    q.length > 0
-      ? sql`lower(${users.email}) like ${`%${q.toLowerCase()}%`} or lower(coalesce(${users.name}, '')) like ${`%${q.toLowerCase()}%`}`
-      : undefined;
+  if (q) {
+    conditions.push(
+      sql`lower(${users.email}) like ${`%${q.toLowerCase()}%`} or lower(coalesce(${users.name}, '')) like ${`%${q.toLowerCase()}%`}`
+    );
+  }
 
+  if (filter === "low_token") {
+    conditions.push(
+      sql`coalesce(${tokenBalances.balance}, 0) <= 2`
+    );
+  }
+  if (filter === "unverified") {
+    conditions.push(isNull(users.emailVerified));
+  }
+  if (filter === "pending_payment") {
+    conditions.push(
+      exists(
+        db.select({ one: sql`1` })
+          .from(transactions)
+          .where(and(eq(transactions.userId, users.id), eq(transactions.status, "pending")))
+      )
+    );
+  }
+  if (filter === "open_report") {
+    conditions.push(
+      exists(
+        db.select({ one: sql`1` })
+          .from(contactMessages)
+          .where(and(eq(contactMessages.userId, users.id), eq(contactMessages.status, "open")))
+      )
+    );
+  }
+  if (filter === "active_7d") {
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60_000);
+    conditions.push(
+      exists(
+        db.select({ one: sql`1` })
+          .from(analyses)
+          .where(and(eq(analyses.userId, users.id), gte(analyses.createdAt, since7d)))
+      )
+    );
+  }
+
+  /* ── order by ────────────────────────────────────────────────── */
+  const dirFn = dir === "asc" ? asc : desc;
+  const orderBy =
+    sort === "last_analysis"
+      ? dirFn(lastAnalysisSq.lastAt)
+      : sort === "balance"
+        ? dirFn(tokenBalances.balance)
+        : dirFn(users.createdAt);
+
+  /* ── main query ──────────────────────────────────────────────── */
   const rows = await db
     .select({
       id: users.id,
@@ -64,174 +122,275 @@ export default async function AdminUsersPage({
       balance: tokenBalances.balance,
       totalBought: tokenBalances.totalBought,
       totalUsed: tokenBalances.totalUsed,
-      lastAnalysisAt: lastAnalysis.lastAnalysisAt,
-      lastPaidAt: lastPaid.lastPaidAt
+      lastAnalysisAt: lastAnalysisSq.lastAt
     })
     .from(users)
     .leftJoin(tokenBalances, eq(tokenBalances.userId, users.id))
-    .leftJoin(lastAnalysis, eq(lastAnalysis.userId, users.id))
-    .leftJoin(lastPaid, eq(lastPaid.userId, users.id))
-    .where(where)
-    .orderBy(desc(users.createdAt))
-    .limit(250);
+    .leftJoin(lastAnalysisSq, eq(lastAnalysisSq.userId, users.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(orderBy)
+    .limit(300);
 
+  /* ── panel data (when user is selected) ─────────────────────── */
+  let panelUser: PanelUser | null = null;
+  if (selectedUserId) {
+    const panelRows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        emailVerified: users.emailVerified,
+        mfaEnabled: users.mfaEnabled,
+        loginLockedUntil: users.loginLockedUntil,
+        balance: tokenBalances.balance,
+        totalBought: tokenBalances.totalBought,
+        totalUsed: tokenBalances.totalUsed
+      })
+      .from(users)
+      .leftJoin(tokenBalances, eq(tokenBalances.userId, users.id))
+      .where(eq(users.id, selectedUserId))
+      .limit(1);
+
+    const pu = panelRows[0];
+    if (pu) {
+      const [recentAnalyses, recentTransactions] = await Promise.all([
+        db.select({
+          id: analyses.id,
+          kind: analyses.kind,
+          status: analyses.status,
+          tokensUsed: analyses.tokensUsed,
+          createdAt: analyses.createdAt
+        })
+          .from(analyses)
+          .where(eq(analyses.userId, selectedUserId))
+          .orderBy(desc(analyses.createdAt))
+          .limit(5),
+
+        db.select({
+          id: transactions.id,
+          orderId: transactions.orderId,
+          status: transactions.status,
+          tokens: transactions.tokens,
+          amount: transactions.amount,
+          paymentMethod: transactions.paymentMethod,
+          createdAt: transactions.createdAt,
+          paidAt: transactions.paidAt
+        })
+          .from(transactions)
+          .where(eq(transactions.userId, selectedUserId))
+          .orderBy(desc(transactions.createdAt))
+          .limit(5)
+      ]);
+
+      panelUser = {
+        id: pu.id,
+        email: pu.email,
+        name: pu.name,
+        emailVerified: pu.emailVerified,
+        mfaEnabled: pu.mfaEnabled,
+        loginLockedUntil: pu.loginLockedUntil,
+        balance: pu.balance ?? 0,
+        totalBought: pu.totalBought ?? 0,
+        totalUsed: pu.totalUsed ?? 0,
+        recentAnalyses,
+        recentTransactions
+      };
+    }
+  }
+
+  /* ── close href (removes ?user=) ─────────────────────────────── */
+  const closeParams = new URLSearchParams();
+  if (q) closeParams.set("q", q);
+  if (filter) closeParams.set("filter", filter);
+  if (sort !== "created") closeParams.set("sort", sort);
+  if (dir !== "desc") closeParams.set("dir", dir);
+  const closeHref = `/admin/users${closeParams.toString() ? `?${closeParams.toString()}` : ""}`;
+
+  /* ── stats ───────────────────────────────────────────────────── */
+  const totalCount = rows.length;
   const verifiedCount = rows.filter((r) => !!r.emailVerified).length;
   const lowTokenCount = rows.filter((r) => (r.balance ?? 0) <= 2).length;
 
-  const openReports = await db
-    .select({ count: sql<number>`count(*)`.as("count") })
-    .from(contactMessages)
-    .where(eq(contactMessages.status, "open"))
-    .limit(1);
-
-  const activeSince = new Date(Date.now() - 7 * 24 * 60 * 60_000);
-  const active7d = await db
-    .select({ count: sql<number>`count(distinct ${analyses.userId})`.as("count") })
-    .from(analyses)
-    .where(gte(analyses.createdAt, activeSince))
-    .limit(1);
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-gray">
-            Admin
-          </div>
-          <h1 className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-            Users
-          </h1>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Aktif (7 hari)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {active7d[0]?.count ?? 0}
-            </div>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Laporan Open
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {openReports[0]?.count ?? 0}
-            </div>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader>
-            <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-              Token Rendah (≤ 2)
-            </div>
-            <div className="mt-1 text-2xl font-bold tracking-[-0.04em] text-expo-black">
-              {lowTokenCount}
-            </div>
-          </CardHeader>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
+    <KeyboardNav>
+      <div className="space-y-4">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <CardTitle>Users</CardTitle>
-            <div className="mt-1 text-sm text-slate-gray">
-              Total: <span className="font-semibold text-near-black">{rows.length}</span> · Verified:{" "}
-              <span className="font-semibold text-near-black">{verifiedCount}</span>
-            </div>
+            <h1 className="text-xl font-bold text-[#111112]">Users</h1>
+            <p className="mt-0.5 text-xs text-[#6b7280]">
+              {totalCount} user · {verifiedCount} verified · {lowTokenCount} token rendah
+            </p>
           </div>
-          <form className="w-full max-w-sm">
+          <form method="get" action="/admin/users" className="flex items-center gap-2">
+            {filter && <input type="hidden" name="filter" value={filter} />}
+            {sort !== "created" && <input type="hidden" name="sort" value={sort} />}
+            {dir !== "desc" && <input type="hidden" name="dir" value={dir} />}
             <input
               name="q"
               defaultValue={q}
-              placeholder="Cari email / nama…"
-              className="w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
+              placeholder="Cari email / nama… (/)"
+              autoComplete="off"
+              className="w-56 rounded border border-[#e4e5ea] bg-white px-3 py-1.5 text-sm text-[#1b1c1f] placeholder:text-[#9ca3af] focus:border-[#111112] focus:outline-none"
             />
+            {q && (
+              <Link
+                href={`/admin/users${filter ? `?filter=${filter}` : ""}`}
+                className="rounded border border-[#e4e5ea] px-2 py-1.5 text-xs text-[#6b7280] hover:bg-[#f5f5f7]"
+              >
+                ✕ Reset
+              </Link>
+            )}
           </form>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table className="min-w-[980px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Token</TableHead>
-                <TableHead>Aktivitas</TableHead>
-                <TableHead>Masuk</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => {
-                const balance = row.balance ?? 0;
-                const low = balance <= 2;
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="text-near-black">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <Link
-                            href={`/admin/users/${row.id}`}
-                            className="block truncate font-semibold text-expo-black hover:underline"
-                          >
-                            {row.email}
-                          </Link>
-                          <div className="mt-0.5 truncate text-xs text-slate-gray">
+        </div>
+
+        {/* Filter bar */}
+        <FilterBar q={q} filter={filter} sort={sort} dir={dir} />
+
+        {/* Table */}
+        <div className="border border-[#e4e5ea] bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
+                    User
+                  </th>
+                  <th className="w-20 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
+                    Verified
+                  </th>
+                  <th className="w-24 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
+                    Token
+                  </th>
+                  <th className="w-44 px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
+                    Aktivitas terakhir
+                  </th>
+                  <th className="w-32 px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e4e5ea]">
+                {rows.map((row) => {
+                  const balance = row.balance ?? 0;
+                  const isSelected = row.id === selectedUserId;
+
+                  /* build href for opening panel */
+                  const rowParams = new URLSearchParams();
+                  if (q) rowParams.set("q", q);
+                  if (filter) rowParams.set("filter", filter);
+                  if (sort !== "created") rowParams.set("sort", sort);
+                  if (dir !== "desc") rowParams.set("dir", dir);
+                  rowParams.set("user", row.id);
+                  const rowHref = `/admin/users?${rowParams.toString()}`;
+
+                  return (
+                    <tr
+                      key={row.id}
+                      data-row-href={rowHref}
+                      tabIndex={0}
+                      className={`cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#111112] ${
+                        isSelected ? "bg-[#f5f5f7]" : "hover:bg-[#f5f5f7]/60"
+                      }`}
+                    >
+                      {/* User */}
+                      <td className="px-4 py-2.5">
+                        <Link
+                          href={rowHref}
+                          scroll={false}
+                          className="block"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="font-medium text-[#111112]">{row.email}</div>
+                          <div className="mt-0.5 text-xs text-[#6b7280]">
                             {row.name ?? "—"} · dibuat {fmt(row.createdAt)}
                           </div>
-                        </div>
-                        <div className="shrink-0 flex items-center gap-2">
-                          {row.emailVerified ? (
-                            <Badge variant="outline">verified</Badge>
-                          ) : (
-                            <Badge className="bg-slate-gray text-white">unverified</Badge>
-                          )}
-                          {row.mfaEnabled ? <Badge variant="outline">mfa</Badge> : null}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-semibold ${low ? "text-red-600" : "text-near-black"}`}>
+                        </Link>
+                      </td>
+
+                      {/* Verified */}
+                      <td className="px-4 py-2.5">
+                        {row.emailVerified ? (
+                          <span className="text-xs font-medium text-green-700">✓</span>
+                        ) : (
+                          <span className="text-xs text-amber-600">—</span>
+                        )}
+                      </td>
+
+                      {/* Balance */}
+                      <td className="px-4 py-2.5 text-right">
+                        <span className={`text-sm font-semibold ${balance <= 2 ? "text-red-600" : "text-[#111112]"}`}>
                           {balance}
                         </span>
-                        <span className="text-xs text-slate-gray">
-                          (bought {row.totalBought ?? 0} · used {row.totalUsed ?? 0})
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-xs text-slate-gray">
-                        Analisis terakhir: <span className="text-near-black">{fmt(row.lastAnalysisAt)}</span>
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-gray">
-                        Pembayaran terakhir: <span className="text-near-black">{fmt(row.lastPaidAt)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <code className="rounded bg-cloud-gray px-2 py-1 text-[11px] text-slate-gray">
-                        {row.id}
-                      </code>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-              {rows.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-10 text-center text-sm text-slate-gray">
-                    Tidak ada user.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
+                        <div className="text-[11px] text-[#6b7280]">
+                          {row.totalBought ?? 0}b · {row.totalUsed ?? 0}u
+                        </div>
+                      </td>
+
+                      {/* Last activity */}
+                      <td className="px-4 py-2.5 text-xs text-[#6b7280]">
+                        {relativeTime(row.lastAnalysisAt)}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Quick +5 grant */}
+                          <form action={adminAdjustTokens}>
+                            <input type="hidden" name="userId" value={row.id} />
+                            <input type="hidden" name="kind" value="grant" />
+                            <input type="hidden" name="amount" value="5" />
+                            <input type="hidden" name="note" value="quick grant dari list" />
+                            <button
+                              type="submit"
+                              title="Grant 5 token"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!confirm(`Grant 5 token ke ${row.email}?`)) e.preventDefault();
+                              }}
+                              className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:border-green-300 hover:bg-green-50 hover:text-green-700"
+                            >
+                              +5
+                            </button>
+                          </form>
+
+                          {/* Open panel */}
+                          <Link
+                            href={rowHref}
+                            scroll={false}
+                            onClick={(e) => e.stopPropagation()}
+                            title="Buka detail"
+                            className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f5f5f7]"
+                          >
+                            Detail
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm text-[#6b7280]">
+                      Tidak ada user yang cocok.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="border-t border-[#e4e5ea] px-4 py-2 text-xs text-[#6b7280]">
+            Menampilkan {rows.length} user · Keyboard: <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">j</kbd> <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">k</kbd> navigasi · <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">Enter</kbd> buka detail · <kbd className="rounded border border-[#e4e5ea] px-1 py-0.5 font-mono text-[10px]">/</kbd> cari
+          </div>
+        </div>
+      </div>
+
+      {/* Detail panel (conditionally rendered) */}
+      {panelUser && (
+        <UserDetailPanel user={panelUser} closeHref={closeHref} />
+      )}
+    </KeyboardNav>
   );
 }
-

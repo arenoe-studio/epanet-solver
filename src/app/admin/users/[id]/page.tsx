@@ -5,14 +5,9 @@ import { and, desc, eq } from "drizzle-orm";
 
 import {
   adminAdjustTokens,
-  adminSetTokens,
   adminUpdateTransaction,
   adminUpdateUser
 } from "@/app/admin/actions";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { analyses, contactMessages, tokenBalances, transactions, users } from "@/lib/db/schema";
@@ -24,6 +19,11 @@ function fmt(dt: Date | null | undefined) {
   if (!dt) return "—";
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
+
+const inputCls =
+  "w-full rounded border border-[#e4e5ea] bg-white px-3 py-2 text-sm text-[#1b1c1f] focus:border-[#111112] focus:outline-none";
+
+const labelCls = "block text-[11px] font-semibold uppercase tracking-widest text-[#6b7280] mb-1";
 
 export default async function AdminUserDetailPage({
   params
@@ -52,21 +52,18 @@ export default async function AdminUserDetailPage({
   const user = userRows[0];
   if (!user) notFound();
 
-  const balanceRows = await db
-    .select({
+  const [balanceRows, recentAnalyses, recentTx, recentReports] = await Promise.all([
+    db.select({
       balance: tokenBalances.balance,
       totalBought: tokenBalances.totalBought,
       totalUsed: tokenBalances.totalUsed,
       updatedAt: tokenBalances.updatedAt
     })
-    .from(tokenBalances)
-    .where(eq(tokenBalances.userId, id))
-    .limit(1);
+      .from(tokenBalances)
+      .where(eq(tokenBalances.userId, id))
+      .limit(1),
 
-  const bal = balanceRows[0] ?? null;
-
-  const recentAnalyses = await db
-    .select({
+    db.select({
       id: analyses.id,
       kind: analyses.kind,
       status: analyses.status,
@@ -74,13 +71,12 @@ export default async function AdminUserDetailPage({
       createdAt: analyses.createdAt,
       fileName: analyses.fileName
     })
-    .from(analyses)
-    .where(eq(analyses.userId, id))
-    .orderBy(desc(analyses.createdAt))
-    .limit(10);
+      .from(analyses)
+      .where(eq(analyses.userId, id))
+      .orderBy(desc(analyses.createdAt))
+      .limit(20),
 
-  const recentTx = await db
-    .select({
+    db.select({
       id: transactions.id,
       orderId: transactions.orderId,
       status: transactions.status,
@@ -91,377 +87,285 @@ export default async function AdminUserDetailPage({
       createdAt: transactions.createdAt,
       paidAt: transactions.paidAt
     })
-    .from(transactions)
-    .where(eq(transactions.userId, id))
-    .orderBy(desc(transactions.createdAt))
-    .limit(10);
+      .from(transactions)
+      .where(eq(transactions.userId, id))
+      .orderBy(desc(transactions.createdAt))
+      .limit(20),
 
-  const recentReports = await db
-    .select({
+    db.select({
       id: contactMessages.id,
       topic: contactMessages.topic,
       status: contactMessages.status,
       createdAt: contactMessages.createdAt
     })
-    .from(contactMessages)
-    .where(eq(contactMessages.userId, id))
-    .orderBy(desc(contactMessages.createdAt))
-    .limit(8);
+      .from(contactMessages)
+      .where(eq(contactMessages.userId, id))
+      .orderBy(desc(contactMessages.createdAt))
+      .limit(10)
+  ]);
 
+  const bal = balanceRows[0] ?? null;
   const balance = bal?.balance ?? 0;
   const isLocked = !!(user.loginLockedUntil && user.loginLockedUntil > new Date());
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/admin/users"
-            className="text-sm font-semibold text-slate-gray hover:text-expo-black"
-          >
-            ← Kembali
+    <div className="space-y-0">
+      {/* Header */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Link href="/admin/users" className="text-xs text-[#6b7280] hover:text-[#111112]">
+            ← Kembali ke Users
           </Link>
-          <Badge variant="outline">user</Badge>
-          {user.emailVerified ? (
-            <Badge variant="outline">verified</Badge>
-          ) : (
-            <Badge className="bg-slate-gray text-white">unverified</Badge>
-          )}
-          {user.mfaEnabled ? <Badge variant="outline">mfa</Badge> : null}
-          {isLocked ? <Badge className="bg-red-600 text-white">locked</Badge> : null}
+          <h1 className="mt-1 text-xl font-bold text-[#111112]">{user.email}</h1>
+          <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
+            {user.emailVerified ? (
+              <span className="rounded bg-green-50 px-1.5 py-0.5 font-medium text-green-700">verified</span>
+            ) : (
+              <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium text-amber-700">unverified</span>
+            )}
+            {user.mfaEnabled && (
+              <span className="rounded bg-[#f5f5f7] px-1.5 py-0.5 font-medium text-[#6b7280]">mfa</span>
+            )}
+            {isLocked && (
+              <span className="rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-700">locked</span>
+            )}
+          </div>
         </div>
-        <div className="text-xs text-slate-gray">
-          ID: <span className="font-mono text-[11px] text-near-black">{user.id}</span>
+        <div className="text-[11px] text-[#6b7280]">
+          ID: <code className="font-mono text-[#1b1c1f]">{user.id}</code>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Profil</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-2">
+      {/* Two-column top section */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Profile */}
+        <div className="border border-[#e4e5ea] bg-white lg:col-span-2">
+          <div className="border-b border-[#e4e5ea] px-4 py-3 text-sm font-semibold text-[#111112]">Profil</div>
+          <div className="px-4 py-4 space-y-4">
+            {/* Info grid */}
+            <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Email
-                </div>
-                <div className="mt-1 text-sm font-semibold text-expo-black">{user.email}</div>
+                <div className={labelCls}>Email</div>
+                <div className="text-sm font-medium text-[#111112]">{user.email}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Dibuat
-                </div>
-                <div className="mt-1 text-sm text-near-black">{fmt(user.createdAt)}</div>
+                <div className={labelCls}>Dibuat</div>
+                <div className="text-sm text-[#1b1c1f]">{fmt(user.createdAt)}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Verified
-                </div>
-                <div className="mt-1 text-sm text-near-black">{user.emailVerified ? fmt(user.emailVerified) : "—"}</div>
+                <div className={labelCls}>Email verified</div>
+                <div className="text-sm text-[#1b1c1f]">{user.emailVerified ? fmt(user.emailVerified) : "Belum"}</div>
               </div>
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Login Fail
-                </div>
-                <div className="mt-1 text-sm text-near-black">
-                  {user.loginFailedCount} {user.loginLockedUntil ? `· locked until ${fmt(user.loginLockedUntil)}` : ""}
+                <div className={labelCls}>Login fail · lock</div>
+                <div className="text-sm text-[#1b1c1f]">
+                  {user.loginFailedCount} kali{user.loginLockedUntil ? ` · locked s/d ${fmt(user.loginLockedUntil)}` : ""}
                 </div>
               </div>
             </div>
 
-            <form action={adminUpdateUser} className="grid gap-3 rounded-2xl border border-border-lavender bg-cloud-gray/30 p-4 sm:grid-cols-3">
+            {/* Edit form */}
+            <form action={adminUpdateUser} className="grid gap-3 border-t border-[#e4e5ea] pt-4 sm:grid-cols-3">
               <input type="hidden" name="userId" value={user.id} />
               <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Nama
-                </label>
-                <input
-                  name="name"
-                  defaultValue={user.name ?? ""}
-                  placeholder="Nama user…"
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                />
+                <label className={labelCls}>Nama</label>
+                <input name="name" defaultValue={user.name ?? ""} placeholder="Nama user…" className={inputCls} />
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Verified
-                </label>
-                <select
-                  name="verified"
-                  defaultValue={user.emailVerified ? "yes" : "no"}
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                >
+                <label className={labelCls}>Verified</label>
+                <select name="verified" defaultValue={user.emailVerified ? "yes" : "no"} className={inputCls}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>
                 </select>
               </div>
               <div className="sm:col-span-3 flex justify-end">
-                <Button type="submit" variant="outline">Simpan Profil</Button>
+                <button type="submit" className="rounded border border-[#e4e5ea] px-4 py-2 text-sm font-medium text-[#1b1c1f] hover:bg-[#f5f5f7]">
+                  Simpan Profil
+                </button>
               </div>
             </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Token</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">Balance</div>
-                <div className={`mt-1 text-3xl font-bold tracking-[-0.04em] ${balance <= 2 ? "text-red-600" : "text-expo-black"}`}>
-                  {balance}
-                </div>
-                <div className="mt-1 text-xs text-slate-gray">
-                  bought {bal?.totalBought ?? 0} · used {bal?.totalUsed ?? 0}
-                  {bal?.updatedAt ? ` · updated ${fmt(bal.updatedAt)}` : ""}
-                </div>
+        {/* Token */}
+        <div className="border border-[#e4e5ea] bg-white">
+          <div className="border-b border-[#e4e5ea] px-4 py-3 text-sm font-semibold text-[#111112]">Token</div>
+          <div className="px-4 py-4 space-y-4">
+            <div>
+              <div className={labelCls}>Balance</div>
+              <div className={`text-3xl font-bold ${balance <= 2 ? "text-red-600" : "text-[#111112]"}`}>{balance}</div>
+              <div className="mt-1 text-xs text-[#6b7280]">
+                dibeli {bal?.totalBought ?? 0} · dipakai {bal?.totalUsed ?? 0}
+                {bal?.updatedAt ? ` · ${fmt(bal.updatedAt)}` : ""}
               </div>
             </div>
 
-            <form action={adminAdjustTokens} className="space-y-3 rounded-2xl border border-border-lavender bg-cloud-gray/30 p-4">
+            <form action={adminAdjustTokens} className="space-y-2 border-t border-[#e4e5ea] pt-4">
               <input type="hidden" name="userId" value={user.id} />
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                    Aksi
-                  </label>
-                  <select
-                    name="kind"
-                    defaultValue="grant"
-                    className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                  >
-                    <option value="grant">Tambah (grant)</option>
-                    <option value="refund">Refund (kembalikan)</option>
-                    <option value="revoke">Kurangi (revoke)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                    Jumlah
-                  </label>
-                  <input
-                    name="amount"
-                    type="number"
-                    min={1}
-                    step={1}
-                    placeholder="mis. 10"
-                    className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                    required
-                  />
-                </div>
+              <div className="flex gap-2">
+                <select name="kind" defaultValue="grant" className={inputCls}>
+                  <option value="grant">Tambah (grant)</option>
+                  <option value="refund">Refund</option>
+                  <option value="revoke">Kurangi (revoke)</option>
+                </select>
+                <input name="amount" type="number" min={1} step={1} placeholder="N" required className="w-20 shrink-0 rounded border border-[#e4e5ea] bg-white px-3 py-2 text-sm focus:border-[#111112] focus:outline-none" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Catatan (opsional)
-                </label>
-                <input
-                  name="note"
-                  placeholder="contoh: goodwill refund, kompensasi bug…"
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                />
-              </div>
-              <Button type="submit" className="w-full">Jalankan</Button>
+              <input name="note" placeholder="Catatan opsional…" className={inputCls} />
+              <button type="submit" className="w-full rounded bg-[#111112] px-3 py-2 text-sm font-semibold text-white hover:opacity-90">
+                Jalankan
+              </button>
             </form>
-
-            <form action={adminSetTokens} className="space-y-3 rounded-2xl border border-border-lavender bg-white p-4">
-              <input type="hidden" name="userId" value={user.id} />
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Set balance
-                </label>
-                <input
-                  name="newBalance"
-                  type="number"
-                  min={0}
-                  step={1}
-                  placeholder="mis. 0"
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Catatan (opsional)
-                </label>
-                <input
-                  name="note"
-                  placeholder="contoh: reset karena abuse…"
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                />
-              </div>
-              <Button type="submit" variant="outline" className="w-full">Set</Button>
-            </form>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>Analisis Terbaru</CardTitle>
-            <Badge variant="outline">{recentAnalyses.length}</Badge>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table className="min-w-[700px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Kind</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Token</TableHead>
-                  <TableHead>Waktu</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentAnalyses.map((a) => (
-                  <TableRow key={a.id}>
-                    <TableCell className="text-xs text-near-black">{a.id}</TableCell>
-                    <TableCell className="text-xs text-near-black">{a.kind}</TableCell>
-                    <TableCell className="text-xs">
-                      <Badge variant="outline">{a.status ?? "—"}</Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-near-black">{a.tokensUsed ?? 0}</TableCell>
-                    <TableCell className="text-xs">{fmt(a.createdAt)}</TableCell>
-                  </TableRow>
-                ))}
-                {recentAnalyses.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-gray">
-                      Belum ada analisis.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3">
-            <CardTitle>Transaksi Terbaru</CardTitle>
-            <Badge variant="outline">{recentTx.length}</Badge>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table className="min-w-[780px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Token</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Paid</TableHead>
-                  <TableHead>Aksi</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentTx.map((t) => (
-                  <TableRow key={t.id}>
-                    <TableCell className="text-xs text-near-black">
-                      <div className="font-semibold">{t.orderId}</div>
-                      <div className="mt-0.5 text-[11px] text-slate-gray">
-                        {t.package ?? "—"} · {t.paymentMethod ?? "—"}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <Badge variant="outline">{t.status ?? "—"}</Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-near-black">{t.tokens ?? 0}</TableCell>
-                    <TableCell className="text-xs text-near-black">{t.amount ?? 0}</TableCell>
-                    <TableCell className="text-xs">{fmt(t.paidAt)}</TableCell>
-                    <TableCell className="text-xs">
-                      {t.status === "pending" ? (
-                        <div className="flex flex-wrap gap-2">
-                          <form action={adminUpdateTransaction}>
-                            <input type="hidden" name="transactionId" value={t.id} />
-                            <input type="hidden" name="status" value="paid" />
-                            <input
-                              type="hidden"
-                              name="paymentMethod"
-                              value={t.paymentMethod ?? "qris_static"}
-                            />
-                            <Button size="sm">Set paid</Button>
-                          </form>
-                          <form action={adminUpdateTransaction}>
-                            <input type="hidden" name="transactionId" value={t.id} />
-                            <input type="hidden" name="status" value="failed" />
-                            <input
-                              type="hidden"
-                              name="paymentMethod"
-                              value={t.paymentMethod ?? "qris_static"}
-                            />
-                            <Button size="sm" variant="outline">
-                              Set failed
-                            </Button>
-                          </form>
-                        </div>
-                      ) : (
-                        <span className="text-slate-gray">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {recentTx.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-sm text-slate-gray">
-                      Belum ada transaksi.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle>Laporan dari user ini</CardTitle>
-          <Link
-            href="/admin/reports"
-            className="text-sm font-semibold text-slate-gray hover:text-expo-black"
-          >
-            Lihat semua →
-          </Link>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table className="min-w-[720px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Topik</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Waktu</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recentReports.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="text-xs text-near-black">{r.id}</TableCell>
-                  <TableCell className="text-sm text-near-black">
-                    <Link href={`/admin/reports/${r.id}`} className="font-semibold hover:underline">
-                      {r.topic}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    <Badge variant="outline">{r.status ?? "open"}</Badge>
-                  </TableCell>
-                  <TableCell className="text-xs">{fmt(r.createdAt)}</TableCell>
-                </TableRow>
+      {/* Analyses */}
+      <div className="mt-4 border border-[#e4e5ea] bg-white">
+        <div className="flex items-center justify-between border-b border-[#e4e5ea] px-4 py-3">
+          <span className="text-sm font-semibold text-[#111112]">Analisis ({recentAnalyses.length})</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">ID</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Kind</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Status</th>
+                <th className="px-4 py-2 text-right font-semibold uppercase tracking-widest text-[#6b7280]">Token</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Waktu</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e4e5ea]">
+              {recentAnalyses.map((a) => (
+                <tr key={a.id}>
+                  <td className="px-4 py-2 font-mono text-[11px] text-[#6b7280]">{String(a.id)}</td>
+                  <td className="px-4 py-2 text-[#1b1c1f]">{a.kind ?? "—"}</td>
+                  <td className="px-4 py-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      a.status === "completed" ? "bg-green-50 text-green-700"
+                        : a.status === "failed" ? "bg-red-50 text-red-700"
+                          : "bg-[#f5f5f7] text-[#6b7280]"
+                    }`}>{a.status ?? "—"}</span>
+                  </td>
+                  <td className="px-4 py-2 text-right text-[#1b1c1f]">{a.tokensUsed ?? 0}</td>
+                  <td className="px-4 py-2 text-[#6b7280]">{fmt(a.createdAt)}</td>
+                </tr>
               ))}
-              {recentReports.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="py-8 text-center text-sm text-slate-gray">
-                    Belum ada laporan yang terhubung ke user ini.
-                  </TableCell>
-                </TableRow>
-              ) : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              {recentAnalyses.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-[#6b7280]">Belum ada analisis.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Transactions */}
+      <div className="mt-4 border border-[#e4e5ea] bg-white">
+        <div className="flex items-center justify-between border-b border-[#e4e5ea] px-4 py-3">
+          <span className="text-sm font-semibold text-[#111112]">Transaksi ({recentTx.length})</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Order</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Status</th>
+                <th className="px-4 py-2 text-right font-semibold uppercase tracking-widest text-[#6b7280]">Token</th>
+                <th className="px-4 py-2 text-right font-semibold uppercase tracking-widest text-[#6b7280]">Amount</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Paid</th>
+                <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#e4e5ea]">
+              {recentTx.map((t) => (
+                <tr key={t.id}>
+                  <td className="px-4 py-2">
+                    <div className="font-medium text-[#1b1c1f]">{t.orderId}</div>
+                    <div className="text-[11px] text-[#6b7280]">{t.package ?? "—"} · {t.paymentMethod ?? "—"}</div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      t.status === "paid" ? "bg-green-50 text-green-700"
+                        : t.status === "failed" ? "bg-red-50 text-red-700"
+                          : "bg-amber-50 text-amber-700"
+                    }`}>{t.status ?? "—"}</span>
+                  </td>
+                  <td className="px-4 py-2 text-right text-[#1b1c1f]">{t.tokens ?? 0}</td>
+                  <td className="px-4 py-2 text-right text-[#1b1c1f]">{(t.amount ?? 0).toLocaleString("id-ID")}</td>
+                  <td className="px-4 py-2 text-[#6b7280]">{fmt(t.paidAt)}</td>
+                  <td className="px-4 py-2">
+                    {t.status === "pending" ? (
+                      <div className="flex gap-1.5">
+                        <form action={adminUpdateTransaction}>
+                          <input type="hidden" name="transactionId" value={t.id} />
+                          <input type="hidden" name="status" value="paid" />
+                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "qris_static"} />
+                          <button type="submit" className="rounded bg-green-600 px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90">Set Paid</button>
+                        </form>
+                        <form action={adminUpdateTransaction}>
+                          <input type="hidden" name="transactionId" value={t.id} />
+                          <input type="hidden" name="status" value="failed" />
+                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "qris_static"} />
+                          <button type="submit" className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f5f5f7]">Set Failed</button>
+                        </form>
+                      </div>
+                    ) : (
+                      <span className="text-[#6b7280]">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {recentTx.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-[#6b7280]">Belum ada transaksi.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Reports */}
+      {recentReports.length > 0 && (
+        <div className="mt-4 border border-[#e4e5ea] bg-white">
+          <div className="flex items-center justify-between border-b border-[#e4e5ea] px-4 py-3">
+            <span className="text-sm font-semibold text-[#111112]">Laporan ({recentReports.length})</span>
+            <Link href="/admin/reports" className="text-xs text-[#6b7280] hover:text-[#111112]">Lihat semua →</Link>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-[#e4e5ea] bg-[#f5f5f7]">
+                  <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Topik</th>
+                  <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Status</th>
+                  <th className="px-4 py-2 text-left font-semibold uppercase tracking-widest text-[#6b7280]">Waktu</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e4e5ea]">
+                {recentReports.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-4 py-2">
+                      <Link href={`/admin/reports/${r.id}`} className="font-medium text-[#1b1c1f] hover:underline">
+                        {r.topic}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        r.status === "resolved" ? "bg-green-50 text-green-700"
+                          : r.status === "spam" ? "bg-[#f5f5f7] text-[#6b7280]"
+                            : "bg-amber-50 text-amber-700"
+                      }`}>{r.status ?? "open"}</span>
+                    </td>
+                    <td className="px-4 py-2 text-[#6b7280]">{fmt(r.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

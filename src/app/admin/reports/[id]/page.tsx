@@ -4,9 +4,6 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 
 import { adminUpdateReport } from "@/app/admin/actions";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { contactMessages } from "@/lib/db/schema";
@@ -18,6 +15,11 @@ function fmt(dt: Date | null | undefined) {
   if (!dt) return "—";
   return new Date(dt).toLocaleString("id-ID", { dateStyle: "medium", timeStyle: "short" });
 }
+
+const inputCls =
+  "w-full rounded border border-[#e4e5ea] bg-white px-3 py-2 text-sm text-[#1b1c1f] focus:border-[#111112] focus:outline-none";
+const labelCls =
+  "block mb-1 text-[11px] font-semibold uppercase tracking-widest text-[#6b7280]";
 
 export default async function AdminReportDetailPage({
   params
@@ -32,15 +34,15 @@ export default async function AdminReportDetailPage({
   const db = getDb();
   const rows = await db
     .select({
-      id: contactMessages.id,
-      userId: contactMessages.userId,
-      name: contactMessages.name,
-      email: contactMessages.email,
-      topic: contactMessages.topic,
-      message: contactMessages.message,
-      status: contactMessages.status,
+      id:         contactMessages.id,
+      userId:     contactMessages.userId,
+      name:       contactMessages.name,
+      email:      contactMessages.email,
+      topic:      contactMessages.topic,
+      message:    contactMessages.message,
+      status:     contactMessages.status,
       adminNotes: contactMessages.adminNotes,
-      createdAt: contactMessages.createdAt
+      createdAt:  contactMessages.createdAt
     })
     .from(contactMessages)
     .where(eq(contactMessages.id, reportId))
@@ -50,103 +52,96 @@ export default async function AdminReportDetailPage({
   if (!report) notFound();
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Link
-            href="/admin/reports"
-            className="text-sm font-semibold text-slate-gray hover:text-expo-black"
-          >
-            ← Kembali
+    <div className="space-y-4">
+      {/* Back + meta */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Link href="/admin/reports" className="text-xs text-[#6b7280] hover:text-[#111112]">
+            ← Kembali ke Laporan
           </Link>
-          <Badge variant="outline">laporan</Badge>
-          <Badge variant="outline">{report.status ?? "open"}</Badge>
+          <h1 className="mt-1 text-xl font-bold text-[#111112]">{report.topic}</h1>
+          <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-[#6b7280]">
+            <span>{report.name}</span>
+            <span>·</span>
+            <a href={`mailto:${report.email}`} className="hover:underline">{report.email}</a>
+            <span>·</span>
+            <span>{fmt(report.createdAt)}</span>
+            <span className={`rounded px-1.5 py-0.5 font-medium ${
+              report.status === "resolved" ? "bg-green-50 text-green-700"
+                : report.status === "spam" ? "bg-[#f5f5f7] text-[#6b7280]"
+                  : "bg-amber-50 text-amber-700"
+            }`}>{report.status ?? "open"}</span>
+          </div>
         </div>
-        <div className="text-xs text-slate-gray">
-          ID: <span className="font-mono text-[11px] text-near-black">{report.id}</span>
-        </div>
+        <div className="text-[11px] text-[#6b7280]">ID: {report.id}</div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>{report.topic}</CardTitle>
-            <div className="mt-1 text-sm text-slate-gray">
-              {report.name} ·{" "}
-              <a className="font-semibold text-expo-black hover:underline" href={`mailto:${report.email}`}>
-                {report.email}
-              </a>{" "}
-              · {fmt(report.createdAt)}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="whitespace-pre-wrap rounded-2xl border border-border-lavender bg-white p-5 text-sm leading-relaxed text-near-black">
+      {/* Two-column */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Message body */}
+        <div className="border border-[#e4e5ea] bg-white lg:col-span-2">
+          <div className="border-b border-[#e4e5ea] px-4 py-3 text-sm font-semibold text-[#111112]">Pesan</div>
+          <div className="px-4 py-4">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-[#1b1c1f]">
               {report.message}
             </div>
             {report.userId ? (
-              <div className="mt-4 text-xs text-slate-gray">
+              <div className="mt-4 text-xs text-[#6b7280]">
                 Terkait user:{" "}
                 <Link
                   href={`/admin/users/${report.userId}`}
-                  className="font-semibold text-expo-black hover:underline"
+                  className="font-medium text-[#1b1c1f] hover:underline"
                 >
                   {report.userId}
                 </Link>
               </div>
             ) : (
-              <div className="mt-4 text-xs text-slate-gray">Tidak terhubung ke akun (guest).</div>
+              <div className="mt-4 text-xs text-[#6b7280]">Tidak terhubung ke akun (guest).</div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Tindak Lanjut</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        {/* Actions */}
+        <div className="border border-[#e4e5ea] bg-white">
+          <div className="border-b border-[#e4e5ea] px-4 py-3 text-sm font-semibold text-[#111112]">Tindak Lanjut</div>
+          <div className="px-4 py-4 space-y-3">
             <form action={adminUpdateReport} className="space-y-3">
               <input type="hidden" name="id" value={report.id} />
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Status
-                </label>
-                <select
-                  name="status"
-                  defaultValue={report.status ?? "open"}
-                  className="mt-1.5 w-full rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
-                >
+                <label className={labelCls}>Status</label>
+                <select name="status" defaultValue={report.status ?? "open"} className={inputCls}>
                   <option value="open">Open</option>
                   <option value="resolved">Resolved</option>
                   <option value="spam">Spam</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-slate-gray">
-                  Catatan internal
-                </label>
+                <label className={labelCls}>Catatan internal</label>
                 <textarea
                   name="adminNotes"
                   rows={6}
                   defaultValue={report.adminNotes ?? ""}
-                  placeholder="Tulis langkah follow-up, hasil investigasi, dll…"
-                  className="mt-1.5 w-full resize-y rounded-xl border border-input-border bg-white px-3.5 py-2.5 text-sm text-expo-black placeholder:text-slate-gray/60 outline-none transition focus:border-near-black focus:ring-2 focus:ring-near-black/10"
+                  placeholder="Langkah follow-up, hasil investigasi…"
+                  className={`${inputCls} resize-y`}
                 />
               </div>
-              <Button type="submit" className="w-full">
+              <button
+                type="submit"
+                className="w-full rounded bg-[#111112] px-3 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
                 Simpan
-              </Button>
+              </button>
             </form>
 
             <a
               href={`mailto:${report.email}?subject=${encodeURIComponent(`[EPANET Solver] Re: ${report.topic}`)}`}
-              className="inline-flex h-9 w-full items-center justify-center rounded-full border border-border-lavender bg-white px-5 text-sm font-semibold text-near-black shadow-sm transition hover:bg-cloud-gray active:scale-[0.98]"
+              className="flex w-full items-center justify-center rounded border border-[#e4e5ea] px-3 py-2 text-sm font-medium text-[#1b1c1f] hover:bg-[#f5f5f7]"
             >
               Balas via Email
             </a>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
