@@ -33,6 +33,7 @@ HW_C_DEFAULT = 140.0
 # ---------------------------------------------------------------------------
 PRV_PRESSURE_TARGET = 60.0  # m (target pressure downstream, nilai tengah 10â€“80)
 PRV_MAX_ITERATIONS = 10
+PRV_MAX_STAGES = 4
 
 # ---------------------------------------------------------------------------
 # Folder & path

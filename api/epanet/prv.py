@@ -479,6 +479,68 @@ def _current_setting(valve) -> float:
         return 0.0
 
 
+def _is_synthetic_prv_node(node_id: str) -> bool:
+    return str(node_id).startswith("J_PRV_")
+
+
+def _normalize_prv_targets(
+    prv_targets: dict[str, list[str]] | list[str],
+) -> dict[str, list[str]]:
+    if isinstance(prv_targets, dict):
+        return {
+            str(valve_id): sorted({str(nid) for nid in (node_ids or [])})
+            for valve_id, node_ids in prv_targets.items()
+        }
+    return {str(valve_id): [] for valve_id in prv_targets}
+
+
+def _discover_prv_zone_targets(
+    wn: wntr.network.WaterNetworkModel,
+    sim_results: dict,
+    seed_targets: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    flow = sim_results.get("flow")
+    flow_by_pipe = flow.to_dict() if hasattr(flow, "to_dict") else dict(flow or {})
+    adj = _directed_edges_from_flow(wn, flow_by_pipe)
+    synthetic_nodes = {str(nid) for nid in wn.junction_name_list if _is_synthetic_prv_node(str(nid))}
+
+    zone_targets: dict[str, list[str]] = {}
+    for valve_id, seed_nodes in seed_targets.items():
+        try:
+            valve = wn.get_link(valve_id)
+            start_node = str(valve.end_node_name)
+            own_nodes = {str(valve.start_node_name), str(valve.end_node_name)}
+        except Exception:
+            zone_targets[valve_id] = list(seed_nodes)
+            continue
+
+        blocked_synthetic = synthetic_nodes.difference(own_nodes)
+        seen = {start_node}
+        queue = deque([start_node])
+        real_nodes: set[str] = set()
+
+        while queue:
+            current = queue.popleft()
+            if (
+                not _is_synthetic_prv_node(current)
+                and current in wn.junction_name_list
+            ):
+                real_nodes.add(str(current))
+
+            for nxt in adj.get(current, []):
+                nxt = str(nxt)
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                if nxt in blocked_synthetic:
+                    continue
+                queue.append(nxt)
+
+        zone_targets[valve_id] = sorted(real_nodes.union(seed_nodes))
+
+    return zone_targets
+
+
 def fine_tune_prvs(
     wn: wntr.network.WaterNetworkModel,
     prv_targets: dict[str, list[str]] | list[str],
@@ -496,15 +558,8 @@ def fine_tune_prvs(
       - MAX_ITER    : iteration budget exhausted
     """
     tune_log: list[dict] = []
-    prev_signature: tuple[tuple[str, float, float], ...] | None = None
-
-    if isinstance(prv_targets, dict):
-        zone_targets = {
-            str(valve_id): [str(nid) for nid in (node_ids or [])]
-            for valve_id, node_ids in prv_targets.items()
-        }
-    else:
-        zone_targets = {str(valve_id): [] for valve_id in prv_targets}
+    prev_signature: tuple[tuple[str, float, float, float], ...] | None = None
+    zone_targets = _normalize_prv_targets(prv_targets)
 
     def _emit(
         it: int,
@@ -532,7 +587,7 @@ def fine_tune_prvs(
     def _zone_pressures(ev: dict, node_ids: list[str]) -> list[float]:
         values: list[float] = []
         for nid, info in ev["node_status"].items():
-            if str(nid).startswith("J_PRV_"):
+            if _is_synthetic_prv_node(str(nid)):
                 continue
             if node_ids and nid not in node_ids:
                 continue
@@ -547,28 +602,38 @@ def fine_tune_prvs(
         last_iter = it
         sim = run_simulation(wn)
         ev = evaluate_network(wn, sim)
+        zone_targets = _discover_prv_zone_targets(wn, sim, zone_targets)
 
         overall_pressures = _zone_pressures(ev, [])
         overall_min = min(overall_pressures, default=0.0)
         overall_max = max(overall_pressures, default=0.0)
 
-        zone_metrics: list[tuple[str, list[str], float, float]] = []
+        zone_metrics: list[tuple[str, list[str], float, float, float]] = []
         for valve_id, node_ids in zone_targets.items():
             pressures = _zone_pressures(ev, node_ids)
             if not pressures:
                 pressures = overall_pressures
+            current_setting = 0.0
+            try:
+                current_setting = _current_setting(wn.get_link(valve_id))
+            except Exception:
+                current_setting = 0.0
             zone_metrics.append(
                 (
                     valve_id,
                     node_ids,
                     min(pressures, default=0.0),
                     max(pressures, default=0.0),
+                    current_setting,
                 )
             )
 
-        signature = tuple((vid, round(min_p, 3), round(max_p, 3)) for vid, _, min_p, max_p in zone_metrics)
+        signature = tuple(
+            (vid, round(min_p, 3), round(max_p, 3), round(setting, 3))
+            for vid, _, min_p, max_p, setting in zone_metrics
+        )
         if prev_signature is not None and signature == prev_signature:
-            for valve_id, node_ids, min_p, max_p in zone_metrics:
+            for valve_id, node_ids, min_p, max_p, _setting in zone_metrics:
                 _emit(
                     it,
                     valve_id,
@@ -585,7 +650,7 @@ def fine_tune_prvs(
         zone_actions: list[tuple[str, list[str], float, float, float, str, str]] = []
         all_ok = True
 
-        for valve_id, node_ids, min_p, max_p in zone_metrics:
+        for valve_id, node_ids, min_p, max_p, current_setting in zone_metrics:
             if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
                 zone_actions.append(
                     (
@@ -617,25 +682,22 @@ def fine_tune_prvs(
 
             all_ok = False
             delta = -(max_p - PRESSURE_MAX) if max_p > PRESSURE_MAX else (PRESSURE_MIN - min_p)
-            step = max(-10.0, min(10.0, float(delta)))
+            step = max(-15.0, min(15.0, float(delta)))
 
             if step < 0:
-                try:
-                    if _current_setting(wn.get_link(valve_id)) <= 1e-6:
-                        zone_actions.append(
-                            (
-                                valve_id,
-                                node_ids,
-                                0.0,
-                                min_p,
-                                max_p,
-                                "CLAMPED",
-                                "Setting PRV sudah 0 m; tidak bisa diturunkan lagi.",
-                            )
+                if current_setting <= 1e-6:
+                    zone_actions.append(
+                        (
+                            valve_id,
+                            node_ids,
+                            0.0,
+                            min_p,
+                            max_p,
+                            "CLAMPED",
+                            "Setting PRV sudah 0 m; tidak bisa diturunkan lagi.",
                         )
-                        continue
-                except Exception:
-                    pass
+                    )
+                    continue
 
             zone_actions.append((valve_id, node_ids, step, min_p, max_p, "STEP", ""))
 

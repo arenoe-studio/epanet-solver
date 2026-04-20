@@ -479,110 +479,271 @@ def _current_setting(valve) -> float:
         return 0.0
 
 
+def _is_synthetic_prv_node(node_id: str) -> bool:
+    return str(node_id).startswith("J_PRV_")
+
+
+def _normalize_prv_targets(
+    prv_targets: dict[str, list[str]] | list[str],
+) -> dict[str, list[str]]:
+    if isinstance(prv_targets, dict):
+        return {
+            str(valve_id): sorted({str(nid) for nid in (node_ids or [])})
+            for valve_id, node_ids in prv_targets.items()
+        }
+    return {str(valve_id): [] for valve_id in prv_targets}
+
+
+def _discover_prv_zone_targets(
+    wn: wntr.network.WaterNetworkModel,
+    sim_results: dict,
+    seed_targets: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    flow = sim_results.get("flow")
+    flow_by_pipe = flow.to_dict() if hasattr(flow, "to_dict") else dict(flow or {})
+    adj = _directed_edges_from_flow(wn, flow_by_pipe)
+    synthetic_nodes = {str(nid) for nid in wn.junction_name_list if _is_synthetic_prv_node(str(nid))}
+
+    zone_targets: dict[str, list[str]] = {}
+    for valve_id, seed_nodes in seed_targets.items():
+        try:
+            valve = wn.get_link(valve_id)
+            start_node = str(valve.end_node_name)
+            own_nodes = {str(valve.start_node_name), str(valve.end_node_name)}
+        except Exception:
+            zone_targets[valve_id] = list(seed_nodes)
+            continue
+
+        blocked_synthetic = synthetic_nodes.difference(own_nodes)
+        seen = {start_node}
+        queue = deque([start_node])
+        real_nodes: set[str] = set()
+
+        while queue:
+            current = queue.popleft()
+            if (
+                not _is_synthetic_prv_node(current)
+                and current in wn.junction_name_list
+            ):
+                real_nodes.add(str(current))
+
+            for nxt in adj.get(current, []):
+                nxt = str(nxt)
+                if nxt in seen:
+                    continue
+                seen.add(nxt)
+                if nxt in blocked_synthetic:
+                    continue
+                queue.append(nxt)
+
+        zone_targets[valve_id] = sorted(real_nodes.union(seed_nodes))
+
+    return zone_targets
+
+
 def fine_tune_prvs(
     wn: wntr.network.WaterNetworkModel,
-    prv_valve_ids: list[str],
+    prv_targets: dict[str, list[str]] | list[str],
 ) -> list[dict]:
     """
     Fine-tune PRV settings to keep real-node pressures within [PMIN, PMAX].
+    If covered nodes per PRV are provided, each PRV is tuned against its own
+    zone so one bad zone does not push every PRV in the same direction.
 
     Termination reasons (recorded in the last row's `status`):
       - OK          : all pressures within window
-      - CONFLICT    : max>PMAX and min<PMIN simultaneously (single-PRV coverage
-                      cannot resolve the elevation gradient)
-      - STAGNANT    : (min_p, max_p) unchanged across an iteration
-      - CLAMPED     : step would lower setting but all valves are already at 0
+      - CONFLICT    : a zone has max>PMAX and min<PMIN simultaneously
+      - STAGNANT    : zone pressures stop changing across an iteration
+      - CLAMPED     : step would lower setting but valve is already at 0
       - MAX_ITER    : iteration budget exhausted
     """
     tune_log: list[dict] = []
-    prev_max: float | None = None
-    prev_min: float | None = None
+    prev_signature: tuple[tuple[str, float, float, float], ...] | None = None
+    zone_targets = _normalize_prv_targets(prv_targets)
 
-    def _emit(it: int, step: float, min_p: float, max_p: float, status: str, reason: str) -> None:
+    def _emit(
+        it: int,
+        valve_id: str,
+        step: float,
+        min_p: float,
+        max_p: float,
+        status: str,
+        reason: str,
+        node_ids: list[str] | None = None,
+    ) -> None:
         tune_log.append(
             {
-                "iter": it,
+                "iter": f"{it}:{valve_id}",
+                "valveId": valve_id,
                 "deltaSettingM": float(step),
                 "minP": float(min_p),
                 "maxP": float(max_p),
                 "status": status,
                 "reason": reason,
+                "coveredNodes": list(node_ids or []),
             }
         )
+
+    def _zone_pressures(ev: dict, node_ids: list[str]) -> list[float]:
+        values: list[float] = []
+        for nid, info in ev["node_status"].items():
+            if _is_synthetic_prv_node(str(nid)):
+                continue
+            if node_ids and nid not in node_ids:
+                continue
+            try:
+                values.append(float(info["pressure"]))
+            except Exception:
+                continue
+        return values
 
     last_iter = 0
     for it in range(1, PRV_MAX_ITERATIONS + 1):
         last_iter = it
         sim = run_simulation(wn)
         ev = evaluate_network(wn, sim)
+        zone_targets = _discover_prv_zone_targets(wn, sim, zone_targets)
 
-        # Ignore the synthetic PRV junctions; tune based on "real" nodes.
-        pressures = [
-            float(info["pressure"])
-            for nid, info in ev["node_status"].items()
-            if not str(nid).startswith("J_PRV_")
-        ]
-        max_p = max(pressures, default=0.0)
-        min_p = min(pressures, default=0.0)
+        overall_pressures = _zone_pressures(ev, [])
+        overall_min = min(overall_pressures, default=0.0)
+        overall_max = max(overall_pressures, default=0.0)
 
-        if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
-            _emit(
-                it, 0.0, min_p, max_p, "CONFLICT",
-                "max_p>PMAX dan min_p<PMIN bersamaan; butuh PRV bertingkat.",
-            )
-            return tune_log
-
-        if max_p <= PRESSURE_MAX and min_p >= PRESSURE_MIN:
-            _emit(it, 0.0, min_p, max_p, "OK", "Semua tekanan dalam rentang.")
-            return tune_log
-
-        if max_p > PRESSURE_MAX:
-            delta = -(max_p - PRESSURE_MAX)
-        else:
-            delta = PRESSURE_MIN - min_p
-
-        step = max(-20.0, min(20.0, float(delta)))
-        if abs(step) < 1e-6:
-            _emit(it, step, min_p, max_p, "OK", "Delta di bawah toleransi.")
-            return tune_log
-
-        if prev_max is not None and abs(prev_max - max_p) < 1e-3 and abs(prev_min - min_p) < 1e-3:
-            _emit(
-                it, step, min_p, max_p, "STAGNANT",
-                "Tekanan tidak berubah; setting PRV sudah jenuh.",
-            )
-            return tune_log
-        prev_max, prev_min = max_p, min_p
-
-        # Detect floor clamp: if step negative but all valves already at 0, stop.
-        if step < 0:
-            all_at_floor = True
-            for vid in prv_valve_ids:
-                try:
-                    if _current_setting(wn.get_link(vid)) > 1e-6:
-                        all_at_floor = False
-                        break
-                except Exception:
-                    all_at_floor = False
-                    break
-            if all_at_floor:
-                _emit(
-                    it, step, min_p, max_p, "CLAMPED",
-                    "Semua PRV di 0 m; tidak bisa diturunkan lagi.",
-                )
-                return tune_log
-
-        for vid in prv_valve_ids:
+        zone_metrics: list[tuple[str, list[str], float, float, float]] = []
+        for valve_id, node_ids in zone_targets.items():
+            pressures = _zone_pressures(ev, node_ids)
+            if not pressures:
+                pressures = overall_pressures
+            current_setting = 0.0
             try:
-                valve = wn.get_link(vid)
-                current = _current_setting(valve)
-                new_setting = max(0.0, current + step)
-                if hasattr(valve, "initial_setting"):
-                    valve.initial_setting = new_setting
+                current_setting = _current_setting(wn.get_link(valve_id))
             except Exception:
+                current_setting = 0.0
+            zone_metrics.append(
+                (
+                    valve_id,
+                    node_ids,
+                    min(pressures, default=0.0),
+                    max(pressures, default=0.0),
+                    current_setting,
+                )
+            )
+
+        signature = tuple(
+            (vid, round(min_p, 3), round(max_p, 3), round(setting, 3))
+            for vid, _, min_p, max_p, setting in zone_metrics
+        )
+        if prev_signature is not None and signature == prev_signature:
+            for valve_id, node_ids, min_p, max_p, _setting in zone_metrics:
+                _emit(
+                    it,
+                    valve_id,
+                    0.0,
+                    min_p,
+                    max_p,
+                    "STAGNANT",
+                    "Tekanan zona tidak berubah; setting PRV sudah jenuh.",
+                    node_ids,
+                )
+            return tune_log
+        prev_signature = signature
+
+        zone_actions: list[tuple[str, list[str], float, float, float, str, str]] = []
+        all_ok = True
+
+        for valve_id, node_ids, min_p, max_p, current_setting in zone_metrics:
+            if max_p > PRESSURE_MAX and min_p < PRESSURE_MIN:
+                zone_actions.append(
+                    (
+                        valve_id,
+                        node_ids,
+                        0.0,
+                        min_p,
+                        max_p,
+                        "CONFLICT",
+                        "Zona ini punya P-HIGH dan P-LOW bersamaan; perlu split zone/PRV tambahan.",
+                    )
+                )
+                all_ok = False
                 continue
 
-        _emit(it, step, min_p, max_p, "STEP", "")
+            if max_p <= PRESSURE_MAX and min_p >= PRESSURE_MIN:
+                zone_actions.append(
+                    (
+                        valve_id,
+                        node_ids,
+                        0.0,
+                        min_p,
+                        max_p,
+                        "OK",
+                        "Semua tekanan zona dalam rentang.",
+                    )
+                )
+                continue
 
-    _emit(last_iter, 0.0, prev_min or 0.0, prev_max or 0.0, "MAX_ITER", "Iterasi maksimum tercapai.")
+            all_ok = False
+            delta = -(max_p - PRESSURE_MAX) if max_p > PRESSURE_MAX else (PRESSURE_MIN - min_p)
+            step = max(-15.0, min(15.0, float(delta)))
+
+            if step < 0 and current_setting <= 1e-6:
+                zone_actions.append(
+                    (
+                        valve_id,
+                        node_ids,
+                        0.0,
+                        min_p,
+                        max_p,
+                        "CLAMPED",
+                        "Setting PRV sudah 0 m; tidak bisa diturunkan lagi.",
+                    )
+                )
+                continue
+
+            zone_actions.append((valve_id, node_ids, step, min_p, max_p, "STEP", ""))
+
+        if all_ok:
+            for valve_id, node_ids, _, min_p, max_p, _, _ in zone_actions:
+                _emit(
+                    it,
+                    valve_id,
+                    0.0,
+                    min_p,
+                    max_p,
+                    "OK",
+                    "Semua tekanan zona dalam rentang.",
+                    node_ids,
+                )
+            return tune_log
+
+        if any(action[5] in {"CONFLICT", "CLAMPED"} for action in zone_actions) and not any(
+            action[5] == "STEP" for action in zone_actions
+        ):
+            for valve_id, node_ids, step, min_p, max_p, status, reason in zone_actions:
+                _emit(it, valve_id, step, min_p, max_p, status, reason, node_ids)
+            return tune_log
+
+        for valve_id, node_ids, step, min_p, max_p, status, reason in zone_actions:
+            if status == "STEP":
+                try:
+                    valve = wn.get_link(valve_id)
+                    current = _current_setting(valve)
+                    new_setting = max(0.0, current + step)
+                    if hasattr(valve, "initial_setting"):
+                        valve.initial_setting = new_setting
+                except Exception:
+                    status = "ERROR"
+                    reason = "Valve tidak dapat diperbarui."
+                    step = 0.0
+            _emit(it, valve_id, step, min_p, max_p, status, reason, node_ids)
+
+    for valve_id, node_ids in zone_targets.items():
+        _emit(
+            last_iter,
+            valve_id,
+            0.0,
+            overall_min,
+            overall_max,
+            "MAX_ITER",
+            "Iterasi maksimum tercapai.",
+            node_ids,
+        )
     return tune_log

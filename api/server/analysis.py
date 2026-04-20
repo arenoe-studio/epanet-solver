@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from api.epanet.config import PRV_MAX_STAGES
 from api.epanet.materials import material_recommendations_for_network
 from api.epanet.network_io import InpValidationError, export_optimized_inp, load_network
 from api.epanet.optimizer import optimize_diameters
@@ -39,6 +40,18 @@ def _tmp_root() -> Path:
 
 def _b64_file(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+
+def _build_prv_targets(applied_rows: list[dict], recommendations: list[dict]) -> dict[str, list[str]]:
+    recommendation_by_pipe = {
+        str(rec.get("pipeId")): [str(nid) for nid in (rec.get("coveredNodes") or [])]
+        for rec in (recommendations or [])
+    }
+    return {
+        str(row["prvValve"]): recommendation_by_pipe.get(str(row.get("originalPipe")), [])
+        for row in (applied_rows or [])
+        if row.get("prvValve")
+    }
 
 
 def analyze_inp_bytes(
@@ -111,60 +124,67 @@ def analyze_inp_bytes(
         pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, prv_advice)
 
         if action == "fix_pressure" and prv_advice.get("needed") and prv_advice.get("recommendations"):
-            prv_fix_log = apply_prvs(wn_opt, prv_advice["recommendations"])
-            prv_targets = {
-                str(row["prvValve"]): [
-                    str(nid)
-                    for nid in next(
-                        (
-                            rec.get("coveredNodes") or []
-                            for rec in (prv_advice.get("recommendations") or [])
-                            if str(rec.get("pipeId")) == str(row.get("originalPipe"))
-                        ),
-                        [],
-                    )
-                ]
-                for row in (prv_fix_log or [])
-                if row.get("prvValve")
-            }
-            prv_tune_log = fine_tune_prvs(wn_opt, prv_targets)
+            current_prv_advice = prv_advice
+            prv_fix_log = []
+            prv_tune_log = []
 
-            # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
-            # changed hydraulics. Keep this capped so server requests stay fast.
-            rerun_budget = max(2.0, min(8.0, float(time_budget_s) * 0.4))
-            rerun_iters = min(10, int(max_iterations))
+            for stage in range(1, PRV_MAX_STAGES + 1):
+                recommendations = current_prv_advice.get("recommendations") or []
+                if not recommendations:
+                    break
 
-            wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
-                wn_opt,
-                max_iterations=rerun_iters,
-                time_budget_s=rerun_budget,
-            )
-            wn_opt = wn_opt2
+                stage_fix_log = apply_prvs(wn_opt, recommendations)
+                if not stage_fix_log:
+                    break
+                prv_fix_log.extend(dict(row, stage=stage) for row in stage_fix_log)
 
-            for pid, ch2 in (diameter_changes2 or {}).items():
-                if pid in diameter_changes:
-                    diameter_changes[pid]["after"] = ch2.get("after")
-                    diameter_changes[pid]["reason"] = ch2.get("reason")
-                    diameter_changes[pid]["category"] = ch2.get("category")
-                else:
-                    diameter_changes[pid] = ch2
+                prv_targets = _build_prv_targets(stage_fix_log, recommendations)
+                stage_tune_log = fine_tune_prvs(wn_opt, prv_targets)
+                if stage_tune_log:
+                    prv_tune_log.extend(dict(row, iter=f"S{stage}-{row.get('iter')}") for row in stage_tune_log)
 
-            for s in snapshots2 or []:
-                s2 = dict(s)
-                s2["iter"] = f"R2-{s.get('iter')}"
-                snapshots.append(s2)
+                # Rerun Modul 2 AFTER every PRV stage so V/HL optimization adapts
+                # to the new head distribution before we judge the remaining
+                # pressure issues.
+                rerun_budget = max(2.0, min(8.0, float(time_budget_s) * 0.4))
+                rerun_iters = min(10, int(max_iterations))
 
-            # After diameters changed again, re-tune PRVs once more (same PRV ids).
-            if prv_targets:
-                prv_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
-                if prv_tune_log2:
-                    prv_tune_log = (prv_tune_log or []) + [
-                        dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
-                    ]
+                wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
+                    wn_opt,
+                    max_iterations=rerun_iters,
+                    time_budget_s=rerun_budget,
+                )
+                wn_opt = wn_opt2
 
-            final_sim = run_simulation(wn_opt)
-            final_eval = evaluate_network(wn_opt, final_sim)
-            pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, prv_advice)
+                for pid, ch2 in (diameter_changes2 or {}).items():
+                    if pid in diameter_changes:
+                        diameter_changes[pid]["after"] = ch2.get("after")
+                        diameter_changes[pid]["reason"] = ch2.get("reason")
+                        diameter_changes[pid]["category"] = ch2.get("category")
+                    else:
+                        diameter_changes[pid] = ch2
+
+                for s in snapshots2 or []:
+                    s2 = dict(s)
+                    s2["iter"] = f"PRV{stage}-R2-{s.get('iter')}"
+                    snapshots.append(s2)
+
+                if prv_targets:
+                    stage_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
+                    if stage_tune_log2:
+                        prv_tune_log.extend(
+                            dict(row, iter=f"S{stage}-R2-{row.get('iter')}") for row in stage_tune_log2
+                        )
+
+                final_sim = run_simulation(wn_opt)
+                final_eval = evaluate_network(wn_opt, final_sim)
+                pressure_followup = build_pressure_followup(wn_opt, final_sim, final_eval, current_prv_advice)
+                if pressure_followup.get("status") == "resolved":
+                    break
+
+                current_prv_advice = analyze_prv_recommendations(wn_opt, final_sim, final_eval)
+                if not current_prv_advice.get("needed") or not current_prv_advice.get("recommendations"):
+                    break
 
             out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
             out_md_final = tmp_dir / f"{uuid.uuid4()}_analysis_report_final.md"

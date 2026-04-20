@@ -45,8 +45,10 @@ THIS_DIR = Path(__file__).parent
 sys.path.insert(0, str(THIS_DIR))
 
 try:
+    from epanet.config import PRV_MAX_STAGES  # type: ignore
     from epanet.network_io import InpValidationError  # type: ignore
 except Exception:  # pragma: no cover
+    PRV_MAX_STAGES = 4
     class InpValidationError(Exception):
         pass
 
@@ -82,6 +84,18 @@ def _read_multipart_file(handler: BaseHTTPRequestHandler) -> tuple[str, bytes, s
 
 def _b64_file(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+
+def _build_prv_targets(applied_rows: list[dict], recommendations: list[dict]) -> dict[str, list[str]]:
+    recommendation_by_pipe = {
+        str(rec.get("pipeId")): [str(nid) for nid in (rec.get("coveredNodes") or [])]
+        for rec in (recommendations or [])
+    }
+    return {
+        str(row["prvValve"]): recommendation_by_pipe.get(str(row.get("originalPipe")), [])
+        for row in (applied_rows or [])
+        if row.get("prvValve")
+    }
 
 
 class handler(BaseHTTPRequestHandler):
@@ -165,66 +179,67 @@ class handler(BaseHTTPRequestHandler):
             pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, prv)
 
             if action == "fix_pressure" and prv.get("needed"):
-                prv_fix_log = apply_prvs(wn_opt, prv.get("recommendations") or [])
-                prv_targets = {
-                    str(row["prvValve"]): [
-                        str(nid)
-                        for nid in next(
-                            (
-                                rec.get("coveredNodes") or []
-                                for rec in (prv.get("recommendations") or [])
-                                if str(rec.get("pipeId")) == str(row.get("originalPipe"))
-                            ),
-                            [],
-                        )
-                    ]
-                    for row in (prv_fix_log or [])
-                    if row.get("prvValve")
-                }
-                prv_tune_log = fine_tune_prvs(wn_opt, prv_targets)
+                current_prv_advice = prv
+                prv_fix_log = []
+                prv_tune_log = []
 
-                # Rerun Modul 2 AFTER PRV insertion so V/HL optimization adapts to
-                # changed hydraulics. Use a fixed budget (not derived from elapsed
-                # wall-time) so results are reproducible across runs.
-                rerun_budget = 8.0
-                rerun_iters = min(10, MAX_ITERATIONS_SERVERLESS)
+                for stage in range(1, PRV_MAX_STAGES + 1):
+                    recommendations = current_prv_advice.get("recommendations") or []
+                    if not recommendations:
+                        break
 
-                wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
-                    wn_opt,
-                    max_iterations=rerun_iters,
-                    time_budget_s=rerun_budget,
-                )
-                wn_opt = wn_opt2
+                    stage_fix_log = apply_prvs(wn_opt, recommendations)
+                    if not stage_fix_log:
+                        break
+                    prv_fix_log.extend(dict(row, stage=stage) for row in stage_fix_log)
 
-                # Merge diameter change history: preserve earliest "before" while
-                # updating latest "after"/reason.
-                for pid, ch2 in (diameter_changes2 or {}).items():
-                    if pid in diameter_changes:
-                        diameter_changes[pid]["after"] = ch2.get("after")
-                        diameter_changes[pid]["reason"] = ch2.get("reason")
-                        diameter_changes[pid]["category"] = ch2.get("category")
-                    else:
-                        diameter_changes[pid] = ch2
+                    prv_targets = _build_prv_targets(stage_fix_log, recommendations)
+                    stage_tune_log = fine_tune_prvs(wn_opt, prv_targets)
+                    if stage_tune_log:
+                        prv_tune_log.extend(dict(row, iter=f"S{stage}-{row.get('iter')}") for row in stage_tune_log)
 
-                # Append rerun snapshots with phase-aware iteration labels.
-                for s in snapshots2 or []:
-                    s2 = dict(s)
-                    s2["iter"] = f"R2-{s.get('iter')}"
-                    snapshots.append(s2)
+                    rerun_budget = 8.0
+                    rerun_iters = min(10, MAX_ITERATIONS_SERVERLESS)
 
-                # After diameters changed again, re-tune PRVs once more (same PRV ids).
-                if prv_targets:
-                    prv_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
-                    if prv_tune_log2:
-                        prv_tune_log = (prv_tune_log or []) + [
-                            dict(row, iter=f"R2-{row.get('iter')}") for row in prv_tune_log2
-                        ]
+                    wn_opt2, _, diameter_changes2, snapshots2 = optimize_diameters(
+                        wn_opt,
+                        max_iterations=rerun_iters,
+                        time_budget_s=rerun_budget,
+                    )
+                    wn_opt = wn_opt2
 
-                sim_final = run_simulation(wn_opt)
-                final_eval = evaluate_network(wn_opt, sim_final)
-                final_sim_results = sim_final
-                pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, prv)
-                materials_final = material_recommendations_for_network(wn_opt, sim_final)
+                    for pid, ch2 in (diameter_changes2 or {}).items():
+                        if pid in diameter_changes:
+                            diameter_changes[pid]["after"] = ch2.get("after")
+                            diameter_changes[pid]["reason"] = ch2.get("reason")
+                            diameter_changes[pid]["category"] = ch2.get("category")
+                        else:
+                            diameter_changes[pid] = ch2
+
+                    for s in snapshots2 or []:
+                        s2 = dict(s)
+                        s2["iter"] = f"PRV{stage}-R2-{s.get('iter')}"
+                        snapshots.append(s2)
+
+                    if prv_targets:
+                        stage_tune_log2 = fine_tune_prvs(wn_opt, prv_targets)
+                        if stage_tune_log2:
+                            prv_tune_log.extend(
+                                dict(row, iter=f"S{stage}-R2-{row.get('iter')}") for row in stage_tune_log2
+                            )
+
+                    sim_final = run_simulation(wn_opt)
+                    final_eval = evaluate_network(wn_opt, sim_final)
+                    final_sim_results = sim_final
+                    pressure_followup = build_pressure_followup(wn_opt, final_sim_results, final_eval, current_prv_advice)
+                    if pressure_followup.get("status") == "resolved":
+                        break
+
+                    current_prv_advice = analyze_prv_recommendations(wn_opt, final_sim_results, final_eval)
+                    if not current_prv_advice.get("needed") or not current_prv_advice.get("recommendations"):
+                        break
+
+                materials_final = material_recommendations_for_network(wn_opt, final_sim_results)
 
                 out_inp_final = tmp_dir / f"{uuid.uuid4()}_optimized_network_final.inp"
                 out_md_final = tmp_dir / f"{uuid.uuid4()}_analysis_report_final.md"
