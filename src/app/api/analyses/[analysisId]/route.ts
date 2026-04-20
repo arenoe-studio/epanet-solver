@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ analysisId: string }> }
 ) {
   const session = await auth();
   const userId = session?.user?.id;
@@ -19,8 +19,8 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = await params;
-  const analysisId = Number(id);
+  const { analysisId: analysisIdRaw } = await params;
+  const analysisId = Number(analysisIdRaw);
   if (!Number.isFinite(analysisId)) {
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
@@ -44,7 +44,7 @@ export async function GET(
     )
     .limit(1);
 
-  const payload = rows[0]?.payload as any;
+  const payload = rows[0]?.payload as unknown;
   if (!payload) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
