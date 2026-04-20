@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
+import type { AuthActionResponse } from "@/types/auth";
 
 export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }) {
   const router = useRouter();
@@ -27,7 +28,7 @@ export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, code })
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as AuthActionResponse;
       if (!res.ok) {
         push({
           title: "Verifikasi gagal",
@@ -55,7 +56,7 @@ export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email })
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as AuthActionResponse;
       if (!res.ok) {
         push({
           title: "Gagal kirim ulang",
@@ -154,4 +155,3 @@ export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }
     </main>
   );
 }
-

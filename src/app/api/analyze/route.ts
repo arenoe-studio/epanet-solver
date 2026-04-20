@@ -7,6 +7,7 @@ import { shouldBypassTokensForEmail } from "@/lib/admin";
 import { upsertAnalysisSnapshot } from "@/lib/analysis-snapshots";
 import { getDb } from "@/lib/db";
 import { analyses } from "@/lib/db/schema";
+import { parseJsonResponse } from "@/lib/http";
 import { buildPythonApiUrl } from "@/lib/python-api";
 import { rateLimitAnalyze } from "@/lib/ratelimit";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
@@ -15,16 +16,6 @@ import { ANALYSIS_TOKEN_COST } from "@/lib/token-constants";
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
-
-async function parseBackendBody(res: Response) {
-  const text = await res.text();
-  if (!text) return { text: "", json: null as any };
-  try {
-    return { text, json: JSON.parse(text) };
-  } catch {
-    return { text, json: null as any };
-  }
-}
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -92,7 +83,7 @@ export async function POST(req: Request) {
       body: pythonFormData,
       signal: AbortSignal.timeout(15000)
     });
-    const { text, json } = await parseBackendBody(pythonRes);
+    const { text, json } = await parseJsonResponse(pythonRes);
 
     if (!pythonRes.ok || !json?.id) {
       await db.update(analyses).set({ status: "failed" }).where(eq(analyses.id, analysisId));

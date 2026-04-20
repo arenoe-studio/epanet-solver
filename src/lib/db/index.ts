@@ -20,3 +20,6 @@ export function getDb() {
   cachedDb = drizzle(sql, { schema }) as HttpDb;
   return cachedDb;
 }
+
+export type DbClient = ReturnType<typeof getDb>;
+export type DrizzleDb = Db;

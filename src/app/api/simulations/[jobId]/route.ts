@@ -5,17 +5,8 @@ import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { analyses } from "@/lib/db/schema";
+import { parseJsonResponse } from "@/lib/http";
 import { buildPythonApiUrl } from "@/lib/python-api";
-
-async function parseBackendBody(res: Response) {
-  const text = await res.text();
-  if (!text) return { text: "", json: null as any };
-  try {
-    return { text, json: JSON.parse(text) };
-  } catch {
-    return { text, json: null as any };
-  }
-}
 
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
   const session = await auth();
@@ -32,7 +23,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     const res = await fetch(buildPythonApiUrl(req.url, `/v1/simulations/${encodeURIComponent(jobId)}`), {
       method: "GET"
     });
-    const { text, json } = await parseBackendBody(res);
+    const { text, json } = await parseJsonResponse(res);
 
     if (json?.status === "failed" && Number.isFinite(analysisId)) {
       try {

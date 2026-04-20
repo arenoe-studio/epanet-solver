@@ -11,7 +11,7 @@ import { eq, sql } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/admin";
 import { consumeOtpCode } from "@/lib/auth-otp";
 import { getServerEnv } from "@/lib/env";
-import { getDb } from "@/lib/db";
+import { getDb, type DrizzleDb } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import {
@@ -24,7 +24,7 @@ import {
 export function getAuthOptions(): NextAuthOptions {
   const env = getServerEnv();
   const db = getDb();
-  const baseAdapter = DrizzleAdapter(db, {
+  const baseAdapter = DrizzleAdapter(db as DrizzleDb, {
     usersTable: users,
     accountsTable: accounts,
     sessionsTable: sessions,

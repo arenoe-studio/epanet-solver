@@ -1,12 +1,13 @@
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
+import type { DbClient } from "@/lib/db";
 import { authOtpCodes } from "@/lib/db/schema";
 import { generateOtpCode, hashOtpCode, type OtpPurpose } from "@/lib/otp";
 
 const MAX_ATTEMPTS = 5;
 
 export async function issueOtpCode(opts: {
-  db: any;
+  db: DbClient;
   email: string;
   purpose: OtpPurpose;
   pepper: string;
@@ -38,7 +39,7 @@ export async function issueOtpCode(opts: {
 }
 
 export async function consumeOtpCode(opts: {
-  db: any;
+  db: DbClient;
   email: string;
   purpose: OtpPurpose;
   pepper: string;

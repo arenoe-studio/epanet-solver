@@ -5,6 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
+import type { AuthActionResponse } from "@/types/auth";
+
+type RegisterPrefill = {
+  email?: string;
+  password?: string;
+};
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,9 +25,9 @@ export default function RegisterPage() {
     try {
       const raw = sessionStorage.getItem("register_prefill");
       if (raw) {
-        const { email: e, password: p } = JSON.parse(raw);
-        if (e) setEmail(e);
-        if (p) setPassword(p);
+        const parsed = JSON.parse(raw) as RegisterPrefill;
+        if (parsed.email) setEmail(parsed.email);
+        if (parsed.password) setPassword(parsed.password);
         sessionStorage.removeItem("register_prefill");
       }
     } catch {}
@@ -36,7 +42,7 @@ export default function RegisterPage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: name || undefined, email, password })
       });
-      const json = (await res.json()) as any;
+      const json = (await res.json()) as AuthActionResponse;
       if (!res.ok) {
         push({
           title: "Gagal daftar",
@@ -127,4 +133,3 @@ export default function RegisterPage() {
     </main>
   );
 }
-

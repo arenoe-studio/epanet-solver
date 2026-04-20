@@ -3,7 +3,6 @@ import MidtransClient from "midtrans-client";
 import { TOKEN_PACKAGES, type TokenPackageKey } from "@/lib/token-packages";
 
 export const PACKAGES = TOKEN_PACKAGES;
-export type PackageKey = TokenPackageKey;
 
 let cachedSnap: InstanceType<typeof MidtransClient.Snap> | null = null;
 

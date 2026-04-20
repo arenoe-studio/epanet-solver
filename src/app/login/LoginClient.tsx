@@ -6,6 +6,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
+import type { AuthActionResponse } from "@/types/auth";
 
 export function LoginClient(props: { callbackUrl: string }) {
   const router = useRouter();
@@ -30,7 +31,7 @@ export function LoginClient(props: { callbackUrl: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      const checkJson = (await checkRes.json()) as any;
+      const checkJson = (await checkRes.json()) as AuthActionResponse;
 
       // Kondisi 1: Email belum terdaftar → arahkan ke halaman daftar
       if (checkRes.status === 401 && checkJson?.notRegistered) {
