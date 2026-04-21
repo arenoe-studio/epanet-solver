@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { rateLimitAuth, rateLimitOtpSend } from "@/lib/ratelimit";
+import { rateLimitAuth, rateLimitBackoff, rateLimitOtpSend } from "@/lib/ratelimit";
 import { getClientIp } from "@/lib/request-ip";
 import { getResendClient, sendVerifyEmailLinkEmail } from "@/lib/resend";
 import { issueVerificationToken } from "@/lib/verification-token";
@@ -21,14 +21,6 @@ export async function POST(request: Request) {
   const env = getServerEnv();
   const ip = getClientIp(request);
 
-  const rl = await rateLimitAuth(`resend_verify:${ip}`);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Terlalu banyak percobaan. Coba lagi nanti." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-    );
-  }
-
   let json: unknown;
   try {
     json = await request.json();
@@ -42,6 +34,33 @@ export async function POST(request: Request) {
   }
 
   const email = parsed.data.email.toLowerCase();
+
+  const rl = await rateLimitAuth(`resend_verify:${ip}`);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
+    );
+  }
+
+  const backoff = await rateLimitBackoff(`verify_email_resend:${ip}:${email}`, {
+    baseSeconds: 30,
+    maxSeconds: 15 * 60,
+    windowSeconds: 6 * 60 * 60
+  });
+  if (!backoff.ok) {
+    return NextResponse.json(
+      {
+        error: "Tunggu sebentar sebelum kirim ulang.",
+        cooldownSeconds: backoff.cooldownSeconds
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(backoff.retryAfterSeconds) }
+      }
+    );
+  }
+
   const db = getDb();
 
   const rows = await db
@@ -53,13 +72,20 @@ export async function POST(request: Request) {
 
   // Anti-enumeration: tetap balas ok meskipun user tidak ada / sudah verified.
   if (!user || user.emailVerified) {
-    return NextResponse.json({ ok: true, emailSent: true });
+    return NextResponse.json({
+      ok: true,
+      emailSent: true,
+      cooldownSeconds: backoff.cooldownSeconds
+    });
   }
 
   const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
   if (!otpRl.ok) {
     return NextResponse.json(
-      { error: "Terlalu banyak permintaan verifikasi. Coba lagi nanti." },
+      {
+        error: "Terlalu banyak permintaan verifikasi. Coba lagi nanti.",
+        cooldownSeconds: otpRl.retryAfterSeconds
+      },
       { status: 429, headers: { "Retry-After": String(otpRl.retryAfterSeconds) } }
     );
   }
@@ -91,6 +117,9 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, emailSent });
+  return NextResponse.json({
+    ok: true,
+    emailSent,
+    cooldownSeconds: backoff.cooldownSeconds
+  });
 }
-

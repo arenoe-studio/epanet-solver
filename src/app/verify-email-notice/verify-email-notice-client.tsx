@@ -12,6 +12,10 @@ function getCooldownStorageKey(email: string) {
   return `verify_email_resend_next_at:${email.toLowerCase()}`;
 }
 
+function getLastEmailStorageKey() {
+  return "auth_last_email";
+}
+
 export function VerifyEmailNoticeClient(props: {
   email: string;
   sent: boolean;
@@ -28,18 +32,31 @@ export function VerifyEmailNoticeClient(props: {
     if (status === "authenticated") router.replace("/dashboard");
   }, [router, status]);
 
-  const email = props.email.trim().toLowerCase();
+  const [effectiveEmail, setEffectiveEmail] = useState(
+    () => props.email.trim().toLowerCase()
+  );
+
+  useEffect(() => {
+    const fromProps = props.email.trim().toLowerCase();
+    if (fromProps) {
+      setEffectiveEmail(fromProps);
+      try {
+        localStorage.setItem(getLastEmailStorageKey(), fromProps);
+      } catch {}
+      return;
+    }
+    try {
+      const last = localStorage.getItem(getLastEmailStorageKey()) ?? "";
+      const cleaned = last.trim().toLowerCase();
+      if (cleaned) setEffectiveEmail(cleaned);
+    } catch {}
+  }, [props.email]);
+
+  const email = effectiveEmail;
   const storageKey = useMemo(() => (email ? getCooldownStorageKey(email) : null), [email]);
 
   useEffect(() => {
     if (!storageKey) return;
-
-    if (props.sent) {
-      try {
-        const nextAt = Date.now() + 60_000;
-        localStorage.setItem(storageKey, String(nextAt));
-      } catch {}
-    }
 
     const tick = () => {
       let nextAtMs = 0;
@@ -56,7 +73,7 @@ export function VerifyEmailNoticeClient(props: {
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [props.sent, storageKey]);
+  }, [storageKey]);
 
   useEffect(() => {
     if (props.reason === "expired") {
@@ -116,9 +133,17 @@ export function VerifyEmailNoticeClient(props: {
         variant: "success",
       });
 
+      const cooldownSeconds =
+        typeof json?.cooldownSeconds === "number" && json.cooldownSeconds > 0
+          ? Math.floor(json.cooldownSeconds)
+          : 30;
+
       if (storageKey) {
         try {
-          localStorage.setItem(storageKey, String(Date.now() + 60_000));
+          localStorage.setItem(
+            storageKey,
+            String(Date.now() + cooldownSeconds * 1000)
+          );
         } catch {}
       }
     } catch {
@@ -178,4 +203,3 @@ export function VerifyEmailNoticeClient(props: {
     </main>
   );
 }
-

@@ -22,13 +22,17 @@ export async function GET(request: Request) {
   const ip = getClientIp(request);
 
   const url = new URL(request.url);
+  const rawEmail = (url.searchParams.get("email") ?? "").trim();
   const parsed = querySchema.safeParse({
-    email: url.searchParams.get("email") ?? "",
+    email: rawEmail,
     token: url.searchParams.get("token") ?? ""
   });
 
   if (!parsed.success) {
-    return NextResponse.redirect(new URL("/verify-email-notice?reason=invalid", url));
+    const qp = new URLSearchParams();
+    if (rawEmail) qp.set("email", rawEmail);
+    qp.set("reason", "invalid");
+    return NextResponse.redirect(new URL(`/verify-email-notice?${qp.toString()}`, url));
   }
 
   const email = parsed.data.email.toLowerCase();
