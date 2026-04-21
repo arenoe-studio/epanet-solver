@@ -7,6 +7,12 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import type { AuthActionResponse } from "@/types/auth";
 
+type PostVerifyLogin = {
+  email: string;
+  password: string;
+  callbackUrl: string;
+};
+
 export function LoginClient(props: { callbackUrl: string }) {
   const router = useRouter();
   const { status } = useSession();
@@ -63,6 +69,14 @@ export function LoginClient(props: { callbackUrl: string }) {
                   variant: "success",
                 }
           );
+          try {
+            const payload: PostVerifyLogin = {
+              email,
+              password,
+              callbackUrl: props.callbackUrl,
+            };
+            sessionStorage.setItem("post_verify_login", JSON.stringify(payload));
+          } catch {}
           router.push(
             emailSent
               ? `/verify?email=${encodeURIComponent(email)}&sent=1&callbackUrl=${encodeURIComponent(props.callbackUrl)}`
@@ -90,6 +104,14 @@ export function LoginClient(props: { callbackUrl: string }) {
           description: "Selesaikan verifikasi email untuk mengaktifkan akun Anda.",
           variant: "error",
         });
+        try {
+          const payload: PostVerifyLogin = {
+            email,
+            password,
+            callbackUrl: props.callbackUrl,
+          };
+          sessionStorage.setItem("post_verify_login", JSON.stringify(payload));
+        } catch {}
         router.push(
           `/verify?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(props.callbackUrl)}`
         );
