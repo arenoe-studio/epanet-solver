@@ -223,6 +223,37 @@ export function LoginClient(props: {
         return;
       }
 
+      if (checkRes.status === 404 && checkJson?.notRegistered) {
+        push({
+          title: "Akun belum terdaftar",
+          description: "Email belum ada. Silakan daftar untuk membuat akun baru.",
+          variant: "success",
+        });
+        router.push(`/register?email=${encodeURIComponent(trimmedEmail)}`);
+        setLoading(false);
+        return;
+      }
+
+      if (checkRes.status === 409 && checkJson?.useOAuth) {
+        push({
+          title: "Tidak bisa pakai password",
+          description: checkJson?.error ?? "Gunakan metode login lain.",
+          variant: "error",
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (checkRes.status === 401 && checkJson?.passwordWrong) {
+        push({
+          title: "Password salah",
+          description: "Coba lagi atau gunakan fitur lupa password.",
+          variant: "error",
+        });
+        setLoading(false);
+        return;
+      }
+
       if (checkRes.status === 429) {
         push({
           title: "Terlalu banyak percobaan",
@@ -235,7 +266,7 @@ export function LoginClient(props: {
 
       push({
         title: "Gagal masuk",
-        description: "Email atau password salah.",
+        description: checkJson?.error ?? "Email atau password salah.",
         variant: "error",
       });
     } catch {
@@ -362,4 +393,3 @@ export function LoginClient(props: {
     </main>
   );
 }
-

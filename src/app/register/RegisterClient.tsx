@@ -23,13 +23,13 @@ function getPasswordChecks(password: string) {
   };
 }
 
-export function RegisterClient() {
+export function RegisterClient(props: { initialEmail: string }) {
   const router = useRouter();
   const { status } = useSession();
   const { push } = useToast();
 
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(props.initialEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -239,4 +239,3 @@ export function RegisterClient() {
     </main>
   );
 }
-

@@ -56,10 +56,21 @@ export async function POST(request: Request) {
   const user = rows[0];
   const now = new Date();
 
-  if (!user?.id || !user.passwordHash) {
+  if (!user?.id) {
     return NextResponse.json(
-      { error: "Email atau password salah.", notRegistered: true },
-      { status: 401 }
+      { error: "Email belum terdaftar. Silakan daftar dulu.", notRegistered: true },
+      { status: 404 }
+    );
+  }
+
+  if (!user.passwordHash) {
+    return NextResponse.json(
+      {
+        error:
+          "Akun ini tidak memiliki password. Silakan masuk dengan Google atau reset password untuk membuat password.",
+        useOAuth: true
+      },
+      { status: 409 }
     );
   }
 
@@ -73,7 +84,7 @@ export async function POST(request: Request) {
   const passOk = verifyPassword(parsed.data.password, user.passwordHash);
   if (!passOk) {
     return NextResponse.json(
-      { error: "Email atau password salah." },
+      { error: "Password salah.", passwordWrong: true },
       { status: 401 }
     );
   }

@@ -3,6 +3,8 @@ export type AuthActionResponse = {
   emailSent?: boolean;
   error?: string;
   notRegistered?: boolean;
+  passwordWrong?: boolean;
+  useOAuth?: boolean;
   notVerified?: boolean;
   mfaRequired?: boolean;
 };
