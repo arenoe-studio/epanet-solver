@@ -9,7 +9,6 @@ import type { AuthActionResponse } from "@/types/auth";
 
 export function VerifyClient(props: {
   initialEmail: string;
-  codeSent?: boolean;
   callbackUrl?: string;
 }) {
   const router = useRouter();
@@ -19,7 +18,6 @@ export function VerifyClient(props: {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
-  const [codeSent, setCodeSent] = useState(props.codeSent ?? false);
 
   useEffect(() => setEmail(props.initialEmail), [props.initialEmail]);
 
@@ -77,7 +75,6 @@ export function VerifyClient(props: {
         description: "Cek inbox/spam email Anda.",
         variant: "success"
       });
-      setCodeSent(true);
     } catch {
       push({ title: "Gagal kirim ulang", variant: "error" });
     } finally {
@@ -89,25 +86,13 @@ export function VerifyClient(props: {
     <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-16">
       <div className="mx-auto max-w-md rounded-3xl border border-border-lavender bg-white p-8 shadow-elevated">
         <h1 className="text-2xl font-bold tracking-[-0.03em] text-expo-black">
-          Aktivasi Akun
+          Autentikasi OTP
         </h1>
         <p className="mt-2 text-sm text-slate-gray">
-          Masukkan kode 6 digit yang dikirim ke email Anda untuk mengaktifkan akun.
+          Masukkan kode 6 digit yang dikirim ke email Anda.
         </p>
 
         <div className="mt-6 space-y-4">
-          <label className="block">
-            <div className="text-xs font-semibold text-slate-gray">Email</div>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              autoComplete="email"
-              className="mt-1 h-11 w-full rounded-xl border border-border-lavender px-4 text-sm outline-none focus:ring-2 focus:ring-expo-black/10"
-              placeholder="you@email.com"
-            />
-          </label>
-
           <label className="block">
             <div className="text-xs font-semibold text-slate-gray">Kode</div>
             <input
@@ -120,38 +105,26 @@ export function VerifyClient(props: {
             />
           </label>
 
-          {!codeSent ? (
-            <button
-              type="button"
-              onClick={resend}
-              disabled={resending || !email}
-              className="inline-flex h-11 w-full items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
-            >
-              {resending ? "Mengirim..." : "Kirim Kode"}
-            </button>
-          ) : (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onVerify}
-              disabled={loading || !email || !code}
-              className="inline-flex h-11 flex-1 items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
-            >
-              {loading ? "Memverifikasi..." : "Verifikasi"}
-            </button>
-            <button
-              type="button"
-              onClick={resend}
-              disabled={resending || !email}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-border-lavender bg-white px-6 text-sm font-semibold text-near-black transition disabled:opacity-50 hover:bg-cloud-gray active:scale-[0.98]"
-            >
-              {resending ? "Mengirim..." : "Kirim Ulang"}
-            </button>
-          </div>
-          )}
+          <button
+            type="button"
+            onClick={onVerify}
+            disabled={loading || !email || !code}
+            className="inline-flex h-11 w-full items-center justify-center rounded-full bg-expo-black px-7 text-base font-semibold text-white transition disabled:opacity-50 hover:opacity-80 active:scale-[0.98]"
+          >
+            {loading ? "Mengautentikasi..." : "Autentikasi"}
+          </button>
+
+          <button
+            type="button"
+            onClick={resend}
+            disabled={resending || !email}
+            className="mx-auto block text-xs font-semibold text-expo-black underline underline-offset-4 disabled:opacity-50"
+          >
+            {resending ? "Mengirim ulang..." : "Kirim ulang OTP"}
+          </button>
 
           <div className="text-center text-xs text-slate-gray">
-            Sudah verifikasi?{" "}
+            Kembali ke{" "}
             <Link
               href={
                 props.callbackUrl
