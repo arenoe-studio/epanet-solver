@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { openBuyTokenModal } from "@/lib/ui-events";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,6 +123,7 @@ export function ResultsPanel({
 
   const defaultCondition: ResultsCondition = (() => {
     const action = (result.summary as any)?.action;
+    if (filesFinal) return "tekanan";
     if (pressureOptimizationAvailable && action === "fix_pressure") return "tekanan";
     return "diameter";
   })();
@@ -270,7 +272,12 @@ export function ResultsPanel({
 
   function nodePressureM(n: (typeof nodes)[number]): number | null {
     if (condition === "awal") return (n as any).pressureAwalM ?? n.pressureBefore ?? null;
-    if (condition === "diameter") return (n as any).pressureDiameterM ?? n.pressureAfter ?? null;
+    if (condition === "diameter") {
+      return (
+        (n as any).pressureDiameterM ??
+        (filesFinal ? null : n.pressureAfter ?? null)
+      );
+    }
     if (condition === "tekanan") return (n as any).pressureTekananM ?? n.pressureAfter ?? null;
     return null;
   }
@@ -284,28 +291,50 @@ export function ResultsPanel({
 
   function pipeDiameterMm(p: (typeof pipes)[number]): number | null {
     if (condition === "awal") return (p as any).diameterAwalMm ?? p.diameterBefore ?? null;
-    if (condition === "diameter") return (p as any).diameterDiameterMm ?? p.diameterAfter ?? null;
+    if (condition === "diameter") {
+      return (
+        (p as any).diameterDiameterMm ??
+        (filesFinal ? null : p.diameterAfter ?? null)
+      );
+    }
     if (condition === "tekanan") return (p as any).diameterTekananMm ?? p.diameterAfter ?? null;
     return null;
   }
 
-  function pipeFlowLps(p: (typeof pipes)[number]): number | null {
-    if (condition === "awal") return (p as any).flowAwalLps ?? null;
-    if (condition === "diameter") return (p as any).flowDiameterLps ?? null;
-    if (condition === "tekanan") return (p as any).flowTekananLps ?? null;
-    return null;
+  function pipeFlowDisplayLps(p: (typeof pipes)[number]): number | null {
+    const raw =
+      condition === "awal"
+        ? ((p as any).flowAwalLpsAbs ?? (p as any).flowAwalLps)
+        : condition === "diameter"
+          ? ((p as any).flowDiameterLpsAbs ?? (p as any).flowDiameterLps)
+          : condition === "tekanan"
+            ? ((p as any).flowTekananLpsAbs ?? (p as any).flowTekananLps)
+            : null;
+
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+    return Math.abs(raw);
   }
 
   function pipeVelocityMps(p: (typeof pipes)[number]): number | null {
     if (condition === "awal") return (p as any).velocityAwalMps ?? p.velocityBefore ?? null;
-    if (condition === "diameter") return (p as any).velocityDiameterMps ?? p.velocityAfter ?? null;
+    if (condition === "diameter") {
+      return (
+        (p as any).velocityDiameterMps ??
+        (filesFinal ? null : p.velocityAfter ?? null)
+      );
+    }
     if (condition === "tekanan") return (p as any).velocityTekananMps ?? p.velocityAfter ?? null;
     return null;
   }
 
   function pipeUnitHeadlossMkm(p: (typeof pipes)[number]): number | null {
     if (condition === "awal") return (p as any).unitHeadlossAwalMkm ?? p.headlossBefore ?? null;
-    if (condition === "diameter") return (p as any).unitHeadlossDiameterMkm ?? p.headlossAfter ?? null;
+    if (condition === "diameter") {
+      return (
+        (p as any).unitHeadlossDiameterMkm ??
+        (filesFinal ? null : p.headlossAfter ?? null)
+      );
+    }
     if (condition === "tekanan") return (p as any).unitHeadlossTekananMkm ?? p.headlossAfter ?? null;
     return null;
   }
@@ -462,7 +491,12 @@ export function ResultsPanel({
       {/* BLOK 3 — DETAIL (KONDISI + TABS) */}
       {(nodes.length > 0 || pipes.length > 0 || materials.length > 0) && (
         <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
-          <div className="border-b border-border-lavender px-5 py-4 space-y-3">
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as ResultsTab)}
+            className="w-full"
+          >
+            <div className="border-b border-border-lavender px-5 py-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
@@ -498,23 +532,29 @@ export function ResultsPanel({
               </PillButton>
             </div>
 
-            <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
-              <PillButton active={activeTab === "nodes"} onClick={() => setActiveTab("nodes")}>
+            <TabsList className="gap-1 rounded-full border border-border-lavender bg-cloud-gray/40 p-1">
+              <TabsTrigger
+                value="nodes"
+                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
+              >
                 Node
-              </PillButton>
-              <PillButton active={activeTab === "links"} onClick={() => setActiveTab("links")}>
+              </TabsTrigger>
+              <TabsTrigger
+                value="links"
+                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
+              >
                 Links
-              </PillButton>
-              <PillButton
-                active={activeTab === "materials"}
-                onClick={() => setActiveTab("materials")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="materials"
+                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
               >
                 Materials
-              </PillButton>
-            </div>
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          {activeTab === "nodes" ? (
+          <TabsContent value="nodes">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -553,7 +593,9 @@ export function ResultsPanel({
                 </TableBody>
               </Table>
             </div>
-          ) : activeTab === "links" ? (
+          </TabsContent>
+
+          <TabsContent value="links">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -586,7 +628,7 @@ export function ResultsPanel({
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{fx((p as any).roughnessC, 0)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeFlowLps(p), 3)} L/s
+                          {fx(pipeFlowDisplayLps(p), 3)} L/s
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {fx(pipeVelocityMps(p), 3)} m/s
@@ -600,7 +642,9 @@ export function ResultsPanel({
                 </TableBody>
               </Table>
             </div>
-          ) : (
+          </TabsContent>
+
+          <TabsContent value="materials">
             <div>
               {materials.length === 0 ? (
                 <div className="px-5 py-6 text-sm text-slate-gray">Tidak ada data.</div>
@@ -719,7 +763,8 @@ export function ResultsPanel({
                 </>
               )}
             </div>
-          )}
+          </TabsContent>
+          </Tabs>
         </div>
       )}
 

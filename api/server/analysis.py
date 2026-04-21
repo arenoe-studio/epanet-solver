@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import math
 import os
 import tempfile
 import time
@@ -48,6 +49,70 @@ def _build_prv_targets(applied_rows: list[dict], recommendations: list[dict]) ->
         for rec in (recommendations or [])
     }
 
+    return {
+        str(row.get("prvValve")): recommendation_by_pipe.get(str(row.get("originalPipe")), [])
+        for row in (applied_rows or [])
+        if row.get("prvValve")
+    }
+
+
+def _finite_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(v):
+        return None
+    return v
+
+
+def _round_or_none(value: object, ndigits: int) -> float | None:
+    v = _finite_float(value)
+    if v is None:
+        return None
+    return round(v, ndigits)
+
+
+def _sim_value(sim_results: dict, key: str, element_id: str) -> float | None:
+    series = (sim_results or {}).get(key)
+    if series is None:
+        return None
+    try:
+        return _finite_float(series.get(element_id))
+    except Exception:
+        return None
+
+
+def _junction_base_demand_m3s(junction: object) -> float:
+    try:
+        demand_list = getattr(junction, "demand_timeseries_list", None)
+        if demand_list:
+            total = 0.0
+            for ts in demand_list:
+                try:
+                    total += float(getattr(ts, "base_value"))
+                except Exception:
+                    continue
+            return total
+    except Exception:
+        pass
+
+    try:
+        return float(getattr(junction, "base_demand", 0.0) or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _flow_dir(q_m3s: object) -> str | None:
+    q = _finite_float(q_m3s)
+    if q is None:
+        return None
+    if abs(q) < 1e-12:
+        return "zero"
+    return "start_to_end" if q > 0 else "end_to_start"
+
 
 def _pressure_debug_snapshot(eval_results: dict) -> dict:
     node_status = eval_results.get("node_status", {})
@@ -78,11 +143,6 @@ def _pressure_debug_snapshot(eval_results: dict) -> dict:
         "highNodes": high,
         "lowNodes": low,
         "negativeNodes": neg,
-    }
-    return {
-        str(row["prvValve"]): recommendation_by_pipe.get(str(row.get("originalPipe")), [])
-        for row in (applied_rows or [])
-        if row.get("prvValve")
     }
 
 
@@ -282,36 +342,36 @@ def analyze_inp_bytes(
         for nid in wn.junction_name_list:
             junction = wn_opt.get_node(nid)
             elev = float(getattr(junction, "elevation", 0.0))
-            base_demand_m3s = float(getattr(junction, "base_demand", 0.0) or 0.0)
+            base_demand_m3s = _junction_base_demand_m3s(junction)
 
             # 3-stage values:
             # - Awal: baseline (original network)
             # - Diameter: after diameter optimization (v1)
             # - Tekanan: after PRV/Fix Pressure (final), may equal Diameter when not available
-            h_awal = float(sim_baseline.get("head", {}).get(nid, 0.0))
-            h_diameter = float(sim_after.get("head", {}).get(nid, 0.0))
-            h_tekanan = float(final_sim.get("head", {}).get(nid, 0.0))
+            h_awal = _sim_value(sim_baseline, "head", nid)
+            h_diameter = _sim_value(sim_after, "head", nid)
+            h_tekanan = _sim_value(final_sim, "head", nid)
 
-            p_awal = float(sim_baseline.get("pressure", {}).get(nid, 0.0))
-            p_diameter = float(sim_after.get("pressure", {}).get(nid, 0.0))
-            p_tekanan = float(final_sim.get("pressure", {}).get(nid, 0.0))
+            p_awal = _sim_value(sim_baseline, "pressure", nid)
+            p_diameter = _sim_value(sim_after, "pressure", nid)
+            p_tekanan = _sim_value(final_sim, "pressure", nid)
 
-            p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
-            p_after = float(final_eval["node_status"].get(nid, {}).get("pressure", 0.0))
+            p_before = _finite_float(baseline_eval.get("node_status", {}).get(nid, {}).get("pressure"))
+            p_after = _finite_float(final_eval.get("node_status", {}).get(nid, {}).get("pressure"))
             code = final_eval["node_status"].get(nid, {}).get("code", "P-OK")
             nodes_data.append(
                 {
                     "id": nid,
-                    "elevation": round(elev, 2),
+                    "elevation": _round_or_none(elev, 2),
                     "baseDemandLps": round(base_demand_m3s * 1000.0, 2),
-                    "headAwalM": round(h_awal, 2),
-                    "headDiameterM": round(h_diameter, 2),
-                    "headTekananM": round(h_tekanan, 2),
-                    "pressureAwalM": round(p_awal, 2),
-                    "pressureDiameterM": round(p_diameter, 2),
-                    "pressureTekananM": round(p_tekanan, 2),
-                    "pressureBefore": round(p_before, 2),
-                    "pressureAfter": round(p_after, 2),
+                    "headAwalM": _round_or_none(h_awal, 2),
+                    "headDiameterM": _round_or_none(h_diameter, 2),
+                    "headTekananM": _round_or_none(h_tekanan, 2),
+                    "pressureAwalM": _round_or_none(p_awal, 2),
+                    "pressureDiameterM": _round_or_none(p_diameter, 2),
+                    "pressureTekananM": _round_or_none(p_tekanan, 2),
+                    "pressureBefore": _round_or_none(p_before, 2),
+                    "pressureAfter": _round_or_none(p_after, 2),
                     "code": code,
                 }
             )
@@ -333,9 +393,13 @@ def analyze_inp_bytes(
             d_diameter_mm = float(after_eval["pipe_status"].get(pid, {}).get("diameter", 0.0)) * 1000.0
             d_tekanan_mm = float(final_eval["pipe_status"].get(pid, {}).get("diameter", 0.0)) * 1000.0
 
-            q_awal_lps = float(sim_baseline.get("flow", {}).get(pid, 0.0)) * 1000.0
-            q_diameter_lps = float(sim_after.get("flow", {}).get(pid, 0.0)) * 1000.0
-            q_tekanan_lps = float(final_sim.get("flow", {}).get(pid, 0.0)) * 1000.0
+            q_awal_m3s = _sim_value(sim_baseline, "flow", pid)
+            q_diameter_m3s = _sim_value(sim_after, "flow", pid)
+            q_tekanan_m3s = _sim_value(final_sim, "flow", pid)
+
+            q_awal_lps = q_awal_m3s * 1000.0 if q_awal_m3s is not None else None
+            q_diameter_lps = q_diameter_m3s * 1000.0 if q_diameter_m3s is not None else None
+            q_tekanan_lps = q_tekanan_m3s * 1000.0 if q_tekanan_m3s is not None else None
 
             v_diameter = float(after_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
             v_tekanan = float(final_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
@@ -343,18 +407,33 @@ def analyze_inp_bytes(
             hl_diameter = float(after_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
             hl_tekanan = float(final_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
 
-            roughness_c = float(getattr(pipe, "roughness", 0.0) or 0.0)
+            roughness_c = _finite_float(getattr(pipe, "roughness", None))
+            if roughness_c is not None and roughness_c <= 0:
+                roughness_c = None
+
+            start_node = str(getattr(pipe, "start_node_name", ""))
+            end_node = str(getattr(pipe, "end_node_name", ""))
             pipes_data.append(
                 {
                     "id": pid,
+                    "fromNode": start_node,
+                    "toNode": end_node,
                     "length": round(float(getattr(pipe, "length", 0.0)), 1),
-                    "roughnessC": round(roughness_c, 3) if roughness_c else 0.0,
-                    "diameterAwalMm": round(d_awal_mm, 1),
-                    "diameterDiameterMm": round(d_diameter_mm, 1),
-                    "diameterTekananMm": round(d_tekanan_mm, 1),
-                    "flowAwalLps": round(q_awal_lps, 3),
-                    "flowDiameterLps": round(q_diameter_lps, 3),
-                    "flowTekananLps": round(q_tekanan_lps, 3),
+                    "roughnessC": _round_or_none(roughness_c, 3),
+                    "diameterAwalMm": _round_or_none(d_awal_mm, 1),
+                    "diameterDiameterMm": _round_or_none(d_diameter_mm, 1),
+                    "diameterTekananMm": _round_or_none(d_tekanan_mm, 1),
+                    "flowAwalLps": _round_or_none(q_awal_lps, 3),
+                    "flowDiameterLps": _round_or_none(q_diameter_lps, 3),
+                    "flowTekananLps": _round_or_none(q_tekanan_lps, 3),
+                    "flowAwalLpsAbs": _round_or_none(abs(q_awal_lps) if q_awal_lps is not None else None, 3),
+                    "flowDiameterLpsAbs": _round_or_none(
+                        abs(q_diameter_lps) if q_diameter_lps is not None else None, 3
+                    ),
+                    "flowTekananLpsAbs": _round_or_none(abs(q_tekanan_lps) if q_tekanan_lps is not None else None, 3),
+                    "flowAwalDir": _flow_dir(q_awal_m3s),
+                    "flowDiameterDir": _flow_dir(q_diameter_m3s),
+                    "flowTekananDir": _flow_dir(q_tekanan_m3s),
                     "velocityAwalMps": round(v_before, 3),
                     "velocityDiameterMps": round(v_diameter, 3),
                     "velocityTekananMps": round(v_tekanan, 3),
@@ -403,7 +482,7 @@ def analyze_inp_bytes(
         try:
             for _, j in wn.junctions():
                 try:
-                    total_demand_m3s += float(j.base_demand)
+                    total_demand_m3s += _junction_base_demand_m3s(j)
                 except Exception:
                     pass
         except Exception:

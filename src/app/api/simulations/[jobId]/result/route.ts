@@ -126,7 +126,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         duration: z.number().optional(),
         nodes: z.number(),
         pipes: z.number(),
-        fileName: z.string().optional()
+        fileName: z.string().optional(),
+        action: z.enum(["analyze", "fix_pressure"]).optional(),
+        pressureOptimizationAvailable: z.boolean().optional()
       }),
       prv: z
         .object({
@@ -134,6 +136,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
           tokenCost: z.number().optional(),
           recommendations: z.array(z.record(z.string(), z.any())).optional()
         })
+        .passthrough()
         .optional(),
       filesV1: z
         .object({
@@ -257,6 +260,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
     return {
       id: String(raw?.id ?? ""),
+      fromNode: typeof raw?.fromNode === "string" ? raw.fromNode : null,
+      toNode: typeof raw?.toNode === "string" ? raw.toNode : null,
       length: toNumberOrNull(raw?.length),
       roughnessC: toNumberOrNull(raw?.roughnessC),
       diameterAwalMm: toNumberOrNull(raw?.diameterAwalMm),
@@ -265,6 +270,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       flowAwalLps: toNumberOrNull(raw?.flowAwalLps),
       flowDiameterLps: toNumberOrNull(raw?.flowDiameterLps),
       flowTekananLps: toNumberOrNull(raw?.flowTekananLps),
+      flowAwalLpsAbs: toNumberOrNull(raw?.flowAwalLpsAbs),
+      flowDiameterLpsAbs: toNumberOrNull(raw?.flowDiameterLpsAbs),
+      flowTekananLpsAbs: toNumberOrNull(raw?.flowTekananLpsAbs),
+      flowAwalDir: typeof raw?.flowAwalDir === "string" ? raw.flowAwalDir : null,
+      flowDiameterDir: typeof raw?.flowDiameterDir === "string" ? raw.flowDiameterDir : null,
+      flowTekananDir: typeof raw?.flowTekananDir === "string" ? raw.flowTekananDir : null,
       velocityAwalMps: toNumberOrNull(raw?.velocityAwalMps),
       velocityDiameterMps: toNumberOrNull(raw?.velocityDiameterMps),
       velocityTekananMps: toNumberOrNull(raw?.velocityTekananMps),

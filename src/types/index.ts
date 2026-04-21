@@ -30,6 +30,8 @@ export type NodeResult = {
 
 export type PipeResult = {
   id: string;
+  fromNode?: string | null;
+  toNode?: string | null;
   length: number | null;
   roughnessC?: number | null;
   diameterAwalMm?: number | null;
@@ -38,6 +40,12 @@ export type PipeResult = {
   flowAwalLps?: number | null;
   flowDiameterLps?: number | null;
   flowTekananLps?: number | null;
+  flowAwalLpsAbs?: number | null;
+  flowDiameterLpsAbs?: number | null;
+  flowTekananLpsAbs?: number | null;
+  flowAwalDir?: string | null;
+  flowDiameterDir?: string | null;
+  flowTekananDir?: string | null;
   velocityAwalMps?: number | null;
   velocityDiameterMps?: number | null;
   velocityTekananMps?: number | null;
