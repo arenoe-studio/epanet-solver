@@ -65,58 +65,28 @@ function StatusDot({ color }: { color: string }) {
   return <span className={`h-1.5 w-1.5 rounded-full ${color}`} aria-hidden />;
 }
 
-function NodeBadge({ code }: { code?: string }) {
-  const map: Record<string, { label: string; dot: string; cls: string }> = {
-    "P-OK":  { label: "OK",    dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
-    "P-LOW": { label: "P-LOW", dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-    "P-HIGH":{ label: "P-HIGH",dot: "bg-orange-400", cls: "bg-orange-50 text-orange-700 border-orange-200" },
-    "P-NEG": { label: "P-NEG", dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" }
-  };
-  const safeCode = typeof code === "string" && code.trim() ? code : "—";
-  const entry = map[safeCode] ?? { label: safeCode, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
-      <StatusDot color={entry.dot} />
-      {entry.label}
-    </span>
-  );
-}
-
-function PipeBadge({ code }: { code?: string }) {
-  const map: Record<string, { label: string; dot: string; cls: string }> = {
-    "OK":      { label: "OK",          dot: "bg-green-500",  cls: "bg-green-50 text-green-700 border-green-200" },
-    "V-LOW":   { label: "V-LOW",       dot: "bg-yellow-400", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
-    "V-HIGH":  { label: "V-HIGH",      dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" },
-    "HL-HIGH": { label: "HL-HIGH",     dot: "bg-red-500",    cls: "bg-red-50 text-red-700 border-red-200" },
-    "HL-SMALL":{ label: "Terlalu Kecil",dot: "bg-red-500",   cls: "bg-red-50 text-red-700 border-red-200" }
-  };
-  const safeCode = typeof code === "string" && code.trim() ? code : "—";
-  const entry = map[safeCode] ?? { label: safeCode, dot: "bg-slate-400", cls: "bg-slate-50 text-slate-600 border-slate-200" };
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${entry.cls}`}>
-      <StatusDot color={entry.dot} />
-      {entry.label}
-    </span>
-  );
-}
-
-function FilterPill({
+function PillButton({
   active,
+  disabled,
   onClick,
   children
 }: {
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
-        active
-          ? "border-expo-black bg-expo-black text-white"
-          : "border-border-lavender bg-white text-slate-gray hover:bg-cloud-gray"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+        disabled
+          ? "cursor-not-allowed border-border-lavender bg-cloud-gray/60 text-silver"
+          : active
+            ? "border-expo-black bg-expo-black text-white"
+            : "border-border-lavender bg-white text-slate-gray hover:bg-cloud-gray"
       }`}
     >
       {children}
@@ -132,8 +102,9 @@ export function ResultsPanel({
   isFixingPressure,
   tokenBalance
 }: ResultsPanelProps) {
-  const [nodeFilter, setNodeFilter] = useState<"all" | "issues" | "ok">("all");
-  const [pipeFilter, setPipeFilter] = useState<"all" | "changed" | "issues" | "ok">("all");
+  type ResultsCondition = "awal" | "diameter" | "tekanan";
+  type ResultsTab = "nodes" | "links" | "materials";
+
   const [materialAccordionOpen, setMaterialAccordionOpen] = useState(false);
   const [exportBusy, setExportBusy] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -145,6 +116,18 @@ export function ResultsPanel({
   const postFix = result.prv?.postFix;
   const fixCost = result.prv?.tokenCost ?? FIX_PRESSURE_TOKEN_COST;
   const exportDisabled = exportBusy !== null;
+  const pressureOptimizationAvailable = Boolean(
+    (result.summary as any)?.pressureOptimizationAvailable ?? filesFinal
+  );
+
+  const defaultCondition: ResultsCondition = (() => {
+    const action = (result.summary as any)?.action;
+    if (pressureOptimizationAvailable && action === "fix_pressure") return "tekanan";
+    return "diameter";
+  })();
+
+  const [condition, setCondition] = useState<ResultsCondition>(defaultCondition);
+  const [activeTab, setActiveTab] = useState<ResultsTab>("nodes");
 
   function costBadge(tokenCost: number) {
     if (tokenCost <= 0) return <Badge className="bg-green-600 text-white">Gratis</Badge>;
@@ -238,6 +221,7 @@ export function ResultsPanel({
   const pipes = result.pipes ?? [];
   const materials = result.materials ?? [];
   const networkInfo = result.networkInfo;
+  const remainingIssues = result.summary.remainingIssues ?? 0;
   const remainingPressureIssues =
     (postFix?.remainingHighNodes.length ?? 0)
     + (postFix?.remainingLowNodes.length ?? 0)
@@ -270,19 +254,6 @@ export function ResultsPanel({
       ? { text: "Analisis selesai — tekanan perlu ditangani", color: "yellow" as const }
       : { text: "Analisis selesai", color: "green" as const };
 
-  const filteredNodes = useMemo(() => {
-    if (nodeFilter === "issues") return nodes.filter((n) => n.code !== "P-OK");
-    if (nodeFilter === "ok") return nodes.filter((n) => n.code === "P-OK");
-    return nodes;
-  }, [nodes, nodeFilter]);
-
-  const filteredPipes = useMemo(() => {
-    if (pipeFilter === "changed") return pipes.filter((p) => p.diameterBefore !== p.diameterAfter);
-    if (pipeFilter === "issues") return pipes.filter((p) => p.code !== "OK");
-    if (pipeFilter === "ok") return pipes.filter((p) => p.code === "OK");
-    return pipes;
-  }, [pipes, pipeFilter]);
-
   const badgeClass =
     overallBadge.color === "green"
       ? "border-green-200 bg-green-50 text-green-700"
@@ -296,6 +267,48 @@ export function ResultsPanel({
     const coveredNodeIds = new Set(prvRecs.flatMap((r) => r.coveredNodes));
     return nodes.filter((n) => coveredNodeIds.has(n.id));
   }, [filesFinal, prvNeeded, prvRecs, nodes]);
+
+  function nodePressureM(n: (typeof nodes)[number]): number | null {
+    if (condition === "awal") return (n as any).pressureAwalM ?? n.pressureBefore ?? null;
+    if (condition === "diameter") return (n as any).pressureDiameterM ?? n.pressureAfter ?? null;
+    if (condition === "tekanan") return (n as any).pressureTekananM ?? n.pressureAfter ?? null;
+    return null;
+  }
+
+  function nodeHeadM(n: (typeof nodes)[number]): number | null {
+    if (condition === "awal") return (n as any).headAwalM ?? null;
+    if (condition === "diameter") return (n as any).headDiameterM ?? null;
+    if (condition === "tekanan") return (n as any).headTekananM ?? null;
+    return null;
+  }
+
+  function pipeDiameterMm(p: (typeof pipes)[number]): number | null {
+    if (condition === "awal") return (p as any).diameterAwalMm ?? p.diameterBefore ?? null;
+    if (condition === "diameter") return (p as any).diameterDiameterMm ?? p.diameterAfter ?? null;
+    if (condition === "tekanan") return (p as any).diameterTekananMm ?? p.diameterAfter ?? null;
+    return null;
+  }
+
+  function pipeFlowLps(p: (typeof pipes)[number]): number | null {
+    if (condition === "awal") return (p as any).flowAwalLps ?? null;
+    if (condition === "diameter") return (p as any).flowDiameterLps ?? null;
+    if (condition === "tekanan") return (p as any).flowTekananLps ?? null;
+    return null;
+  }
+
+  function pipeVelocityMps(p: (typeof pipes)[number]): number | null {
+    if (condition === "awal") return (p as any).velocityAwalMps ?? p.velocityBefore ?? null;
+    if (condition === "diameter") return (p as any).velocityDiameterMps ?? p.velocityAfter ?? null;
+    if (condition === "tekanan") return (p as any).velocityTekananMps ?? p.velocityAfter ?? null;
+    return null;
+  }
+
+  function pipeUnitHeadlossMkm(p: (typeof pipes)[number]): number | null {
+    if (condition === "awal") return (p as any).unitHeadlossAwalMkm ?? p.headlossBefore ?? null;
+    if (condition === "diameter") return (p as any).unitHeadlossDiameterMkm ?? p.headlossAfter ?? null;
+    if (condition === "tekanan") return (p as any).unitHeadlossTekananMkm ?? p.headlossAfter ?? null;
+    return null;
+  }
 
   return (
     <section className="mx-auto max-w-5xl space-y-6">
@@ -396,14 +409,18 @@ export function ResultsPanel({
         <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-5">
           {[
             { label: "Iterasi", value: result.summary.iterations, unit: "putaran" },
-            { label: "Durasi", value: `${result.summary.duration}s`, unit: "detik" },
+            {
+              label: "Durasi",
+              value: result.summary.duration !== undefined ? `${result.summary.duration}s` : "—",
+              unit: "detik"
+            },
             { label: "Masalah Ditemukan", value: result.summary.issuesFound, unit: "awal" },
             { label: "Berhasil Diperbaiki", value: result.summary.issuesFixed, unit: "selesai" },
             {
               label: "Masalah Tersisa",
-              value: result.summary.remainingIssues,
+              value: result.summary.remainingIssues ?? "—",
               unit: "tersisa",
-              warn: result.summary.remainingIssues > 0
+              warn: remainingIssues > 0
             }
           ].map(({ label, value, unit, warn }) => (
             <div
@@ -429,12 +446,12 @@ export function ResultsPanel({
           ))}
         </div>
 
-        {result.summary.remainingIssues > 0 && (
+        {remainingIssues > 0 && (
           <p className="text-xs leading-relaxed text-slate-gray">
             <em>
               {filesFinal
                 ? isPressureResolved
-                  ? `Fix pressure sudah selesai. Sisa ${result.summary.remainingIssues} masalah berasal dari evaluasi pipa, bukan tekanan node.`
+                  ? `Fix pressure sudah selesai. Sisa ${remainingIssues} masalah berasal dari evaluasi pipa, bukan tekanan node.`
                   : `Masih ada ${remainingPressureIssues} masalah tekanan yang belum selesai setelah fix pressure. Lihat rekomendasi tindak lanjut di panel PRV.`
                 : "Masalah tersisa adalah node dengan tekanan tinggi (P-HIGH). Ini bukan kegagalan optimasi — tekanan tinggi disebabkan perbedaan elevasi dan tidak bisa diselesaikan dengan mengubah diameter. Lihat rekomendasi PRV di bawah."}
             </em>
@@ -442,260 +459,267 @@ export function ResultsPanel({
         )}
       </div>
 
-      {/* BLOK 3 — TABEL NODE */}
-      {nodes.length > 0 && (
+      {/* BLOK 3 — DETAIL (KONDISI + TABS) */}
+      {(nodes.length > 0 || pipes.length > 0 || materials.length > 0) && (
         <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
-          <div className="border-b border-border-lavender px-5 py-4">
-            <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-              Hasil Node
-            </div>
-            <p className="mt-0.5 text-xs text-slate-gray">
-              Evaluasi tekanan per simpul berdasarkan Permen PU No. 18/PRT/M/2007 (batas: 10–80 m)
-            </p>
-            {hasPHighNodes && (
-              <p className="mt-2 text-xs italic text-slate-gray">
-                Perubahan tekanan antar kondisi minimal karena sistem mengiterasi diameter, bukan
-                mengatur tekanan langsung. Node dengan P-HIGH ditangani melalui PRV — lihat Panel
-                PRV di bawah.
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <FilterPill active={nodeFilter === "all"} onClick={() => setNodeFilter("all")}>
-                Semua ({nodes.length})
-              </FilterPill>
-              <FilterPill
-                active={nodeFilter === "issues"}
-                onClick={() => setNodeFilter("issues")}
-              >
-                Bermasalah ({nodes.filter((n) => n.code !== "P-OK").length})
-              </FilterPill>
-              <FilterPill active={nodeFilter === "ok"} onClick={() => setNodeFilter("ok")}>
-                OK ({nodes.filter((n) => n.code === "P-OK").length})
-              </FilterPill>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Node</TableHead>
-                  <TableHead>Elevasi</TableHead>
-                  <TableHead>Tekanan Awal</TableHead>
-                  <TableHead>Tekanan Akhir</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredNodes.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-slate-gray">
-                      Tidak ada data.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredNodes.map((n) => (
-                      <TableRow key={n.id}>
-                        <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
-                      <TableCell>{fx(n.elevation, 2)} m</TableCell>
-                      <TableCell>{fx(n.pressureBefore, 2)} m</TableCell>
-                      <TableCell>{fx(n.pressureAfter, 2)} m</TableCell>
-                      <TableCell>
-                        <NodeBadge code={n.code} />
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      {/* BLOK 4 — TABEL PIPA */}
-      {pipes.length > 0 && (
-        <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
-          <div className="border-b border-border-lavender px-5 py-4">
-            <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-              Hasil Pipa
-            </div>
-            <p className="mt-0.5 text-xs text-slate-gray">
-              Evaluasi kecepatan dan headloss per pipa. Diameter diiterasi otomatis menggunakan
-              ukuran standar SNI.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <FilterPill active={pipeFilter === "all"} onClick={() => setPipeFilter("all")}>
-                Semua ({pipes.length})
-              </FilterPill>
-              <FilterPill
-                active={pipeFilter === "changed"}
-                onClick={() => setPipeFilter("changed")}
-              >
-                Diameter Berubah (
-                {pipes.filter((p) => p.diameterBefore !== p.diameterAfter).length})
-              </FilterPill>
-              <FilterPill
-                active={pipeFilter === "issues"}
-                onClick={() => setPipeFilter("issues")}
-              >
-                Bermasalah ({pipes.filter((p) => p.code !== "OK").length})
-              </FilterPill>
-              <FilterPill active={pipeFilter === "ok"} onClick={() => setPipeFilter("ok")}>
-                OK ({pipes.filter((p) => p.code === "OK").length})
-              </FilterPill>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pipa</TableHead>
-                  <TableHead>Panjang</TableHead>
-                  <TableHead>D Awal</TableHead>
-                  <TableHead>D Akhir</TableHead>
-                  <TableHead>V Awal</TableHead>
-                  <TableHead>V Akhir</TableHead>
-                  <TableHead>HL Awal</TableHead>
-                  <TableHead>HL Akhir</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPipes.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-slate-gray">
-                      Tidak ada data.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredPipes.map((p) => {
-                    const dChanged = p.diameterBefore !== p.diameterAfter;
-                    return (
-                        <TableRow
-                          key={p.id}
-                          className={dChanged ? "bg-blue-50/40" : undefined}
-                        >
-                          <TableCell className="font-medium text-expo-black">{p.id}</TableCell>
-                        <TableCell>{fx(p.length, 1)} m</TableCell>
-                          <TableCell>{fx(p.diameterBefore, 1)} mm</TableCell>
-                          <TableCell
-                            className={dChanged ? "font-bold text-expo-black" : undefined}
-                          >
-                          {fx(p.diameterAfter, 1)} mm
-                        </TableCell>
-                        <TableCell>{fx(p.velocityBefore, 3)} m/s</TableCell>
-                        <TableCell>{fx(p.velocityAfter, 3)} m/s</TableCell>
-                        <TableCell>{fx(p.headlossBefore, 2)} m/km</TableCell>
-                        <TableCell>{fx(p.headlossAfter, 2)} m/km</TableCell>
-                        <TableCell>
-                          <PipeBadge code={p.code} />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          <p className="px-5 py-3 text-[11px] text-silver">
-            Diameter mengacu pada ukuran standar SNI: 40, 50, 63, 75, 90, 110, 125, 150, 200,
-            250, 315, 400, 500 mm.
-          </p>
-        </div>
-      )}
-
-      {/* BLOK 5 — REKOMENDASI MATERIAL */}
-      {materials.length > 0 && (
-        <div className="rounded-2xl border border-border-lavender bg-white shadow-whisper">
-          <div className="border-b border-border-lavender px-5 py-4">
-            <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-              Rekomendasi Material
-            </div>
-            <p className="mt-0.5 text-xs text-slate-gray">
-              Material direkomendasikan berdasarkan tekanan kerja aktual dan diameter hasil
-              optimasi, mengacu pada SNI dan Permen PU No. 18/2007.
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pipa</TableHead>
-                  <TableHead>D Rekomendasi</TableHead>
-                  <TableHead>Material</TableHead>
-                  <TableHead>Nilai C</TableHead>
-                  <TableHead>Tekanan Kerja</TableHead>
-                  <TableHead>Catatan</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {materials.map((m) => (
-                  <TableRow key={m.pipeId}>
-                    <TableCell className="whitespace-nowrap font-medium text-expo-black">{m.pipeId}</TableCell>
-                    <TableCell className="whitespace-nowrap">{fx(m.diameterMm, 1)} mm</TableCell>
-                    <TableCell className="whitespace-nowrap">{m.material}</TableCell>
-                    <TableCell className="whitespace-nowrap">{m.C}</TableCell>
-                    <TableCell className="whitespace-nowrap">{fx(m.pressureWorkingM, 2)} m</TableCell>
-                    <TableCell className="min-w-[180px]">
-                      {m.notes.length > 0 ? (
-                        <span className="text-xs leading-snug text-orange-700">
-                          {m.notes[0]}
-                        </span>
-                      ) : (
-                        <span className="text-silver">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Accordion */}
-          <div className="border-t border-border-lavender">
-            <button
-              type="button"
-              onClick={() => setMaterialAccordionOpen((v) => !v)}
-              className="flex w-full items-center justify-between px-5 py-3 text-sm font-semibold text-near-black hover:bg-cloud-gray transition"
-            >
-              <span>Dasar Pemilihan Material</span>
-              <svg
-                width="14" height="14" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                className={`text-slate-gray transition-transform duration-200 ${materialAccordionOpen ? "rotate-180" : ""}`}
-                aria-hidden
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            {materialAccordionOpen && (
-              <div className="border-t border-border-lavender bg-cloud-gray/60 px-5 py-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-gray">
-                  Matriks Keputusan
-                </p>
-                <div className="space-y-1.5 text-sm text-near-black">
-                  <div className="flex gap-3">
-                    <span className="w-56 shrink-0 text-slate-gray">Tekanan ≤ 100m, D ≤ 110mm</span>
-                    <span className="font-medium">PVC AW PN-10 <span className="text-slate-gray font-normal">(C=140)</span></span>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="w-56 shrink-0 text-slate-gray">Tekanan ≤ 100m, D &gt; 110mm</span>
-                    <span className="font-medium">HDPE PE100 PN-10 <span className="text-slate-gray font-normal">(C=140)</span></span>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="w-56 shrink-0 text-slate-gray">Tekanan 100–160m</span>
-                    <span className="font-medium">HDPE PE100 PN-16 <span className="text-slate-gray font-normal">(C=140)</span></span>
-                  </div>
-                  <div className="flex gap-3">
-                    <span className="w-56 shrink-0 text-slate-gray">Tekanan &gt; 160m</span>
-                    <span className="font-medium">GIP Heavy / Steel <span className="text-slate-gray font-normal">(C=120)</span></span>
-                  </div>
+          <div className="border-b border-border-lavender px-5 py-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
+                  Detail Hasil
                 </div>
-                <p className="text-xs text-slate-gray">
-                  Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) · SNI 07-0242.1-2000 (GIP) · EPANET 2.2 Manual Table 3.2
+                <p className="mt-0.5 text-xs text-slate-gray">
+                  Pilih kondisi dan tab untuk melihat tabel.
                 </p>
               </div>
-            )}
+              {!pressureOptimizationAvailable && (
+                <div className="whitespace-nowrap text-xs text-slate-gray">
+                  Jalankan Fix Pressure untuk melihat kondisi ini.
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
+              <PillButton active={condition === "awal"} onClick={() => setCondition("awal")}>
+                Kondisi Awal
+              </PillButton>
+              <PillButton
+                active={condition === "diameter"}
+                onClick={() => setCondition("diameter")}
+              >
+                Optimasi Diameter
+              </PillButton>
+              <PillButton
+                active={condition === "tekanan"}
+                disabled={!pressureOptimizationAvailable}
+                onClick={() => setCondition("tekanan")}
+              >
+                Optimasi Tekanan
+              </PillButton>
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
+              <PillButton active={activeTab === "nodes"} onClick={() => setActiveTab("nodes")}>
+                Node
+              </PillButton>
+              <PillButton active={activeTab === "links"} onClick={() => setActiveTab("links")}>
+                Links
+              </PillButton>
+              <PillButton
+                active={activeTab === "materials"}
+                onClick={() => setActiveTab("materials")}
+              >
+                Materials
+              </PillButton>
+            </div>
           </div>
+
+          {activeTab === "nodes" ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Node</TableHead>
+                    <TableHead>Elevation</TableHead>
+                    <TableHead>Base Demand</TableHead>
+                    <TableHead>Head</TableHead>
+                    <TableHead>Pressure</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nodes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-slate-gray">
+                        Tidak ada data.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    nodes.map((n) => (
+                      <TableRow key={n.id}>
+                        <TableCell className="whitespace-nowrap font-medium text-expo-black">
+                          {n.id}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(n.elevation, 2)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx((n as any).baseDemandLps, 2)} L/s
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(nodeHeadM(n), 2)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(nodePressureM(n), 2)} m
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : activeTab === "links" ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Links</TableHead>
+                    <TableHead>Length</TableHead>
+                    <TableHead>Diameter</TableHead>
+                    <TableHead>Roughness</TableHead>
+                    <TableHead>Flow</TableHead>
+                    <TableHead>Velocity</TableHead>
+                    <TableHead>Unit Headloss</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pipes.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-slate-gray">
+                        Tidak ada data.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    pipes.map((p) => (
+                      <TableRow key={p.id}>
+                        <TableCell className="whitespace-nowrap font-medium text-expo-black">
+                          {p.id}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(p.length, 1)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(pipeDiameterMm(p), 1)} mm
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{fx((p as any).roughnessC, 0)}</TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(pipeFlowLps(p), 3)} L/s
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(pipeVelocityMps(p), 3)} m/s
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(pipeUnitHeadlossMkm(p), 2)} m/km
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div>
+              {materials.length === 0 ? (
+                <div className="px-5 py-6 text-sm text-slate-gray">Tidak ada data.</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Pipa</TableHead>
+                          <TableHead>D Rekomendasi</TableHead>
+                          <TableHead>Material</TableHead>
+                          <TableHead>Nilai C</TableHead>
+                          <TableHead>Tekanan Kerja</TableHead>
+                          <TableHead>Catatan</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {materials.map((m) => (
+                          <TableRow key={m.pipeId}>
+                            <TableCell className="whitespace-nowrap font-medium text-expo-black">
+                              {m.pipeId}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {fx(m.diameterMm, 1)} mm
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{m.material}</TableCell>
+                            <TableCell className="whitespace-nowrap">{m.C}</TableCell>
+                            <TableCell className="whitespace-nowrap">
+                              {fx(m.pressureWorkingM, 2)} m
+                            </TableCell>
+                            <TableCell className="min-w-[180px]">
+                              {m.notes.length > 0 ? (
+                                <span className="text-xs leading-snug text-orange-700">
+                                  {m.notes[0]}
+                                </span>
+                              ) : (
+                                <span className="text-silver">—</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Accordion */}
+                  <div className="border-t border-border-lavender">
+                    <button
+                      type="button"
+                      onClick={() => setMaterialAccordionOpen((v) => !v)}
+                      className="flex w-full items-center justify-between px-5 py-3 text-sm font-semibold text-near-black hover:bg-cloud-gray transition"
+                    >
+                      <span>Dasar Pemilihan Material</span>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`text-slate-gray transition-transform duration-200 ${materialAccordionOpen ? "rotate-180" : ""}`}
+                        aria-hidden
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                    {materialAccordionOpen && (
+                      <div className="border-t border-border-lavender bg-cloud-gray/60 px-5 py-4 space-y-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-slate-gray">
+                          Matriks Keputusan
+                        </p>
+                        <div className="space-y-1.5 text-sm text-near-black">
+                          <div className="flex gap-3">
+                            <span className="w-56 shrink-0 text-slate-gray">
+                              Tekanan ≤ 100m, D ≤ 110mm
+                            </span>
+                            <span className="font-medium">
+                              PVC AW PN-10{" "}
+                              <span className="text-slate-gray font-normal">(C=140)</span>
+                            </span>
+                          </div>
+                          <div className="flex gap-3">
+                            <span className="w-56 shrink-0 text-slate-gray">
+                              Tekanan ≤ 100m, D &gt; 110mm
+                            </span>
+                            <span className="font-medium">
+                              HDPE PE100 PN-10{" "}
+                              <span className="text-slate-gray font-normal">(C=140)</span>
+                            </span>
+                          </div>
+                          <div className="flex gap-3">
+                            <span className="w-56 shrink-0 text-slate-gray">Tekanan 100–160m</span>
+                            <span className="font-medium">
+                              HDPE PE100 PN-16{" "}
+                              <span className="text-slate-gray font-normal">(C=140)</span>
+                            </span>
+                          </div>
+                          <div className="flex gap-3">
+                            <span className="w-56 shrink-0 text-slate-gray">Tekanan &gt; 160m</span>
+                            <span className="font-medium">
+                              GIP Heavy / Steel{" "}
+                              <span className="text-slate-gray font-normal">(C=120)</span>
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-gray">
+                          Referensi: SNI 06-2550-1991 (PVC) · SNI 4829.2:2015 (HDPE) · SNI
+                          07-0242.1-2000 (GIP) · EPANET 2.2 Manual Table 3.2
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -718,7 +742,7 @@ export function ResultsPanel({
                   }`}
                   aria-hidden
                 />
-                {isPressureResolved ? "Fix Pressure selesai" : "Fix Pressure parsial"}
+                {isPressureResolved ? "Fix Pressure selesai" : "Butuh tindak lanjut"}
               </div>
               <p className="text-sm text-slate-gray">
                 {prvRecs.length} PRV berhasil disisipkan.{" "}
@@ -763,7 +787,7 @@ export function ResultsPanel({
                           <TableCell className="font-medium text-expo-black">{n.id}</TableCell>
                           <TableCell>{fx(n.pressureAfter, 2)} m</TableCell>
                           <TableCell>
-                            <NodeBadge code={n.code} />
+                            <span className="text-xs font-semibold text-slate-gray">{n.code}</span>
                           </TableCell>
                         </TableRow>
                       ))}

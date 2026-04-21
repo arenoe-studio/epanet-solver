@@ -190,20 +190,28 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const pipesFull = (result as any).pipes;
   const materialsFull = (result as any).materials;
 
-  function toNumberOrNaN(value: unknown): number {
+  function toNumberOrNull(value: unknown): number | null {
     if (typeof value === "number") return value;
     if (typeof value === "string" && value.trim()) {
       const n = Number(value);
-      return Number.isFinite(n) ? n : Number.NaN;
+      return Number.isFinite(n) ? n : null;
     }
-    return Number.NaN;
+    return null;
   }
 
   const allowedNodeCodes = new Set(["P-OK", "P-LOW", "P-HIGH", "P-NEG"]);
   function normalizeNode(raw: any) {
-    const pressureBefore = toNumberOrNaN(raw?.pressureBefore);
-    const pressureAfter = toNumberOrNaN(raw?.pressureAfter);
-    const elevation = toNumberOrNaN(raw?.elevation);
+    const pressureBefore = toNumberOrNull(raw?.pressureBefore);
+    const pressureAfter = toNumberOrNull(raw?.pressureAfter);
+    const elevation = toNumberOrNull(raw?.elevation);
+
+    const baseDemandLps = toNumberOrNull(raw?.baseDemandLps);
+    const headAwalM = toNumberOrNull(raw?.headAwalM);
+    const headDiameterM = toNumberOrNull(raw?.headDiameterM);
+    const headTekananM = toNumberOrNull(raw?.headTekananM);
+    const pressureAwalM = toNumberOrNull(raw?.pressureAwalM);
+    const pressureDiameterM = toNumberOrNull(raw?.pressureDiameterM);
+    const pressureTekananM = toNumberOrNull(raw?.pressureTekananM);
 
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
@@ -212,7 +220,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       "";
 
     if (!allowedNodeCodes.has(code)) {
-      if (Number.isFinite(pressureAfter)) {
+      if (typeof pressureAfter === "number") {
         if (pressureAfter < 0) code = "P-NEG";
         else if (pressureAfter < 10) code = "P-LOW";
         else if (pressureAfter > 80) code = "P-HIGH";
@@ -225,6 +233,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     return {
       id: String(raw?.id ?? ""),
       elevation,
+      baseDemandLps,
+      headAwalM,
+      headDiameterM,
+      headTekananM,
+      pressureAwalM,
+      pressureDiameterM,
+      pressureTekananM,
       pressureBefore,
       pressureAfter,
       code
@@ -242,13 +257,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
     return {
       id: String(raw?.id ?? ""),
-      length: toNumberOrNaN(raw?.length),
-      diameterBefore: toNumberOrNaN(raw?.diameterBefore ?? raw?.diameterBeforeMm),
-      diameterAfter: toNumberOrNaN(raw?.diameterAfter ?? raw?.diameterAfterMm),
-      velocityBefore: toNumberOrNaN(raw?.velocityBefore),
-      velocityAfter: toNumberOrNaN(raw?.velocityAfter),
-      headlossBefore: toNumberOrNaN(raw?.headlossBefore),
-      headlossAfter: toNumberOrNaN(raw?.headlossAfter),
+      length: toNumberOrNull(raw?.length),
+      roughnessC: toNumberOrNull(raw?.roughnessC),
+      diameterAwalMm: toNumberOrNull(raw?.diameterAwalMm),
+      diameterDiameterMm: toNumberOrNull(raw?.diameterDiameterMm),
+      diameterTekananMm: toNumberOrNull(raw?.diameterTekananMm),
+      flowAwalLps: toNumberOrNull(raw?.flowAwalLps),
+      flowDiameterLps: toNumberOrNull(raw?.flowDiameterLps),
+      flowTekananLps: toNumberOrNull(raw?.flowTekananLps),
+      velocityAwalMps: toNumberOrNull(raw?.velocityAwalMps),
+      velocityDiameterMps: toNumberOrNull(raw?.velocityDiameterMps),
+      velocityTekananMps: toNumberOrNull(raw?.velocityTekananMps),
+      unitHeadlossAwalMkm: toNumberOrNull(raw?.unitHeadlossAwalMkm),
+      unitHeadlossDiameterMkm: toNumberOrNull(raw?.unitHeadlossDiameterMkm),
+      unitHeadlossTekananMkm: toNumberOrNull(raw?.unitHeadlossTekananMkm),
+      diameterBefore: toNumberOrNull(raw?.diameterBefore ?? raw?.diameterBeforeMm),
+      diameterAfter: toNumberOrNull(raw?.diameterAfter ?? raw?.diameterAfterMm),
+      velocityBefore: toNumberOrNull(raw?.velocityBefore),
+      velocityAfter: toNumberOrNull(raw?.velocityAfter),
+      headlossBefore: toNumberOrNull(raw?.headlossBefore),
+      headlossAfter: toNumberOrNull(raw?.headlossAfter),
       code
     };
   }

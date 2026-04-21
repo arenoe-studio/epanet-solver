@@ -25,7 +25,7 @@ export function BuyTokenModal({ open, onOpenChange }: BuyTokenModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="max-w-6xl 2xl:max-w-7xl">
         <DialogHeader>
           <DialogTitle>Beli Token</DialogTitle>
         </DialogHeader>
@@ -34,7 +34,7 @@ export function BuyTokenModal({ open, onOpenChange }: BuyTokenModalProps) {
           Pilih paket token, lalu lanjutkan pembayaran di halaman checkout.
         </p>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {TOKEN_PACKAGES_LIST.map((pkg) => (
             <TokenPackageCard
               key={pkg.key}

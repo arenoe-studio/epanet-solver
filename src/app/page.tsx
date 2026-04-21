@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
@@ -16,12 +15,6 @@ export default function HomePage() {
   const router = useRouter();
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
-
-  // Jika sudah login, skip landing dan langsung ke dashboard.
-  // (Sesuai desain: landing untuk user belum login.)
-  useEffect(() => {
-    if (isLoggedIn) router.replace("/dashboard");
-  }, [isLoggedIn, router]);
 
   return (
     <main>

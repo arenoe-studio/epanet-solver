@@ -282,6 +282,20 @@ def analyze_inp_bytes(
         for nid in wn.junction_name_list:
             junction = wn_opt.get_node(nid)
             elev = float(getattr(junction, "elevation", 0.0))
+            base_demand_m3s = float(getattr(junction, "base_demand", 0.0) or 0.0)
+
+            # 3-stage values:
+            # - Awal: baseline (original network)
+            # - Diameter: after diameter optimization (v1)
+            # - Tekanan: after PRV/Fix Pressure (final), may equal Diameter when not available
+            h_awal = float(sim_baseline.get("head", {}).get(nid, 0.0))
+            h_diameter = float(sim_after.get("head", {}).get(nid, 0.0))
+            h_tekanan = float(final_sim.get("head", {}).get(nid, 0.0))
+
+            p_awal = float(sim_baseline.get("pressure", {}).get(nid, 0.0))
+            p_diameter = float(sim_after.get("pressure", {}).get(nid, 0.0))
+            p_tekanan = float(final_sim.get("pressure", {}).get(nid, 0.0))
+
             p_before = float(baseline_eval["node_status"].get(nid, {}).get("pressure", 0.0))
             p_after = float(final_eval["node_status"].get(nid, {}).get("pressure", 0.0))
             code = final_eval["node_status"].get(nid, {}).get("code", "P-OK")
@@ -289,6 +303,13 @@ def analyze_inp_bytes(
                 {
                     "id": nid,
                     "elevation": round(elev, 2),
+                    "baseDemandLps": round(base_demand_m3s * 1000.0, 2),
+                    "headAwalM": round(h_awal, 2),
+                    "headDiameterM": round(h_diameter, 2),
+                    "headTekananM": round(h_tekanan, 2),
+                    "pressureAwalM": round(p_awal, 2),
+                    "pressureDiameterM": round(p_diameter, 2),
+                    "pressureTekananM": round(p_tekanan, 2),
                     "pressureBefore": round(p_before, 2),
                     "pressureAfter": round(p_after, 2),
                     "code": code,
@@ -306,10 +327,40 @@ def analyze_inp_bytes(
             hl_before = float(baseline_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
             hl_after = float(final_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
             composite = final_eval["pipe_status"].get(pid, {}).get("composite", "OK")
+
+            # 3-stage values
+            d_awal_mm = float(baseline_eval["pipe_status"].get(pid, {}).get("diameter", 0.0)) * 1000.0
+            d_diameter_mm = float(after_eval["pipe_status"].get(pid, {}).get("diameter", 0.0)) * 1000.0
+            d_tekanan_mm = float(final_eval["pipe_status"].get(pid, {}).get("diameter", 0.0)) * 1000.0
+
+            q_awal_lps = float(sim_baseline.get("flow", {}).get(pid, 0.0)) * 1000.0
+            q_diameter_lps = float(sim_after.get("flow", {}).get(pid, 0.0)) * 1000.0
+            q_tekanan_lps = float(final_sim.get("flow", {}).get(pid, 0.0)) * 1000.0
+
+            v_diameter = float(after_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+            v_tekanan = float(final_eval["pipe_status"].get(pid, {}).get("velocity", 0.0))
+
+            hl_diameter = float(after_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+            hl_tekanan = float(final_eval["pipe_status"].get(pid, {}).get("headloss", 0.0))
+
+            roughness_c = float(getattr(pipe, "roughness", 0.0) or 0.0)
             pipes_data.append(
                 {
                     "id": pid,
                     "length": round(float(getattr(pipe, "length", 0.0)), 1),
+                    "roughnessC": round(roughness_c, 3) if roughness_c else 0.0,
+                    "diameterAwalMm": round(d_awal_mm, 1),
+                    "diameterDiameterMm": round(d_diameter_mm, 1),
+                    "diameterTekananMm": round(d_tekanan_mm, 1),
+                    "flowAwalLps": round(q_awal_lps, 3),
+                    "flowDiameterLps": round(q_diameter_lps, 3),
+                    "flowTekananLps": round(q_tekanan_lps, 3),
+                    "velocityAwalMps": round(v_before, 3),
+                    "velocityDiameterMps": round(v_diameter, 3),
+                    "velocityTekananMps": round(v_tekanan, 3),
+                    "unitHeadlossAwalMkm": round(hl_before, 2),
+                    "unitHeadlossDiameterMkm": round(hl_diameter, 2),
+                    "unitHeadlossTekananMkm": round(hl_tekanan, 2),
                     "diameterBefore": round(d_before_m * 1000.0, 1),
                     "diameterAfter": round(d_after_m * 1000.0, 1),
                     "velocityBefore": round(v_before, 3),
@@ -385,6 +436,7 @@ def analyze_inp_bytes(
                 "pipes": wn.num_pipes,
                 "fileName": filename,
                 "action": action,
+                "pressureOptimizationAvailable": bool(out_inp_final and out_md_final),
             },
             "prv": {**prv_advice, "postFix": pressure_followup},
             "prvDebug": prv_debug_log,

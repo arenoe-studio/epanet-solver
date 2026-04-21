@@ -15,21 +15,41 @@ export type User = {
 
 export type NodeResult = {
   id: string;
-  elevation: number;
-  pressureBefore: number;
-  pressureAfter: number;
+  elevation: number | null;
+  baseDemandLps?: number | null;
+  headAwalM?: number | null;
+  headDiameterM?: number | null;
+  headTekananM?: number | null;
+  pressureAwalM?: number | null;
+  pressureDiameterM?: number | null;
+  pressureTekananM?: number | null;
+  pressureBefore: number | null;
+  pressureAfter: number | null;
   code: "P-OK" | "P-LOW" | "P-HIGH" | "P-NEG";
 };
 
 export type PipeResult = {
   id: string;
-  length: number;
-  diameterBefore: number;
-  diameterAfter: number;
-  velocityBefore: number;
-  velocityAfter: number;
-  headlossBefore: number;
-  headlossAfter: number;
+  length: number | null;
+  roughnessC?: number | null;
+  diameterAwalMm?: number | null;
+  diameterDiameterMm?: number | null;
+  diameterTekananMm?: number | null;
+  flowAwalLps?: number | null;
+  flowDiameterLps?: number | null;
+  flowTekananLps?: number | null;
+  velocityAwalMps?: number | null;
+  velocityDiameterMps?: number | null;
+  velocityTekananMps?: number | null;
+  unitHeadlossAwalMkm?: number | null;
+  unitHeadlossDiameterMkm?: number | null;
+  unitHeadlossTekananMkm?: number | null;
+  diameterBefore: number | null;
+  diameterAfter: number | null;
+  velocityBefore: number | null;
+  velocityAfter: number | null;
+  headlossBefore: number | null;
+  headlossAfter: number | null;
   code: "OK" | "V-LOW" | "V-HIGH" | "HL-HIGH" | "HL-SMALL";
 };
 
@@ -57,10 +77,11 @@ export type AnalysisResult = {
     iterations: number;
     issuesFound: number;
     issuesFixed: number;
-    remainingIssues: number;
-    duration: number;
+    remainingIssues?: number;
+    duration?: number;
     nodes: number;
     pipes: number;
+    pressureOptimizationAvailable?: boolean;
   };
   prv?: {
     needed: boolean;
