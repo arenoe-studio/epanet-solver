@@ -6,7 +6,6 @@ interface PasswordRequirementsProps {
 
 const REQUIREMENTS = [
   { key: "length", label: "Minimal 8 karakter", test: (pwd: string) => pwd.length >= 8 },
-  { key: "maxLength", label: "Maksimal 256 karakter", test: (pwd: string) => pwd.length <= 256 },
   { key: "uppercase", label: "Mengandung huruf besar (A-Z)", test: (pwd: string) => /[A-Z]/.test(pwd) },
   { key: "lowercase", label: "Mengandung huruf kecil (a-z)", test: (pwd: string) => /[a-z]/.test(pwd) },
   { key: "number", label: "Mengandung angka (0-9)", test: (pwd: string) => /[0-9]/.test(pwd) },

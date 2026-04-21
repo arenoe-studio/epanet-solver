@@ -7,7 +7,11 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import type { AuthActionResponse } from "@/types/auth";
 
-export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }) {
+export function VerifyClient(props: {
+  initialEmail: string;
+  codeSent?: boolean;
+  callbackUrl?: string;
+}) {
   const router = useRouter();
   const { push } = useToast();
 
@@ -39,7 +43,9 @@ export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }
         return;
       }
       push({ title: "Email terverifikasi", variant: "success" });
-      router.push(`/login?callbackUrl=${encodeURIComponent("/upload")}`);
+      const raw = props.callbackUrl;
+      const callbackUrl = raw && raw.startsWith("/") ? raw : "/upload";
+      router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`);
     } catch {
       push({ title: "Verifikasi gagal", variant: "error" });
     } finally {
@@ -146,7 +152,14 @@ export function VerifyClient(props: { initialEmail: string; codeSent?: boolean }
 
           <div className="text-center text-xs text-slate-gray">
             Sudah verifikasi?{" "}
-            <Link href="/login" className="font-semibold text-expo-black">
+            <Link
+              href={
+                props.callbackUrl
+                  ? `/login?callbackUrl=${encodeURIComponent(props.callbackUrl)}`
+                  : "/login"
+              }
+              className="font-semibold text-expo-black"
+            >
               Masuk
             </Link>
           </div>

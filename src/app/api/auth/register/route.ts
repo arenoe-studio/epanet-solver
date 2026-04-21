@@ -19,7 +19,6 @@ export const dynamic = "force-dynamic";
 const passwordSchema = z
   .string()
   .min(8, "Password minimal 8 karakter")
-  .max(256, "Password maksimal 256 karakter")
   .refine((pwd) => /[A-Z]/.test(pwd), {
     message: "Password harus mengandung huruf besar (A-Z)"
   })
@@ -145,4 +144,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, emailSent });
 }
-
