@@ -3,56 +3,71 @@ import { z } from "zod";
 
 import { sql } from "drizzle-orm";
 
-import { consumeOtpCode } from "@/lib/auth-otp";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { rateLimitAuth } from "@/lib/ratelimit";
 import { getClientIp } from "@/lib/request-ip";
+import { consumeVerificationToken } from "@/lib/verification-token";
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
+const querySchema = z.object({
   email: z.string().trim().email(),
-  code: z.string().trim().min(6).max(6)
+  token: z.string().trim().min(10)
 });
 
-export async function POST(request: Request) {
+export async function GET(request: Request) {
   const env = getServerEnv();
   const ip = getClientIp(request);
-  const rl = await rateLimitAuth(`verify_email:${ip}`);
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Terlalu banyak percobaan. Coba lagi nanti." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } }
-    );
-  }
 
-  let json: unknown;
-  try {
-    json = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Bad request" }, { status: 400 });
-  }
+  const url = new URL(request.url);
+  const parsed = querySchema.safeParse({
+    email: url.searchParams.get("email") ?? "",
+    token: url.searchParams.get("token") ?? ""
+  });
 
-  const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid input" }, { status: 422 });
+    return NextResponse.redirect(new URL("/verify-email-notice?reason=invalid", url));
   }
 
   const email = parsed.data.email.toLowerCase();
-  const db = getDb();
 
-  const ok = await consumeOtpCode({
+  const rl = await rateLimitAuth(`verify_email_link:${ip}:${email}`);
+  if (!rl.ok) {
+    return NextResponse.redirect(
+      new URL(
+        `/verify-email-notice?email=${encodeURIComponent(email)}&reason=invalid`,
+        url
+      )
+    );
+  }
+
+  const db = getDb();
+  const identifier = `verify_email:${email}`;
+  const res = await consumeVerificationToken({
     db,
-    email,
-    purpose: "verify_email",
-    pepper: env.NEXTAUTH_SECRET,
-    code: parsed.data.code
+    identifier,
+    token: parsed.data.token,
+    secret: env.NEXTAUTH_SECRET
   });
 
-  if (!ok) {
-    return NextResponse.json({ error: "Kode salah atau kadaluarsa." }, { status: 400 });
+  if (res === "expired") {
+    return NextResponse.redirect(
+      new URL(
+        `/verify-email-notice?email=${encodeURIComponent(email)}&reason=expired`,
+        url
+      )
+    );
+  }
+
+  if (res !== "ok") {
+    return NextResponse.redirect(
+      new URL(
+        `/verify-email-notice?email=${encodeURIComponent(email)}&reason=invalid`,
+        url
+      )
+    );
   }
 
   await db
@@ -60,5 +75,7 @@ export async function POST(request: Request) {
     .set({ emailVerified: new Date() })
     .where(sql`lower(${users.email}) = lower(${email})`);
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.redirect(
+    new URL(`/login?verified=1&email=${encodeURIComponent(email)}`, url)
+  );
 }

@@ -4,15 +4,16 @@ import { z } from "zod";
 
 import { eq, sql } from "drizzle-orm";
 
-import { issueOtpCode } from "@/lib/auth-otp";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { hashPassword } from "@/lib/password";
 import { rateLimitAuth, rateLimitOtpSend } from "@/lib/ratelimit";
-import { getResendClient, sendAuthCodeEmail } from "@/lib/resend";
+import { getRequestOrigin } from "@/lib/request-origin";
+import { getResendClient, sendVerifyEmailLinkEmail } from "@/lib/resend";
 import { getClientIp } from "@/lib/request-ip";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
+import { issueVerificationToken } from "@/lib/verification-token";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +33,17 @@ const passwordSchema = z
     message: "Password harus mengandung simbol (!@#$%^&* dll)"
   });
 
-const bodySchema = z.object({
-  name: z.string().trim().min(1).max(80).optional(),
-  email: z.string().trim().email(),
-  password: passwordSchema
-});
+const bodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    email: z.string().trim().email(),
+    password: passwordSchema,
+    confirmPassword: z.string().min(1).optional()
+  })
+  .refine((data) => !data.confirmPassword || data.password === data.confirmPassword, {
+    message: "Konfirmasi password tidak cocok",
+    path: ["confirmPassword"]
+  });
 
 export async function POST(request: Request) {
   let env: ReturnType<typeof getServerEnv>;
@@ -94,7 +101,7 @@ export async function POST(request: Request) {
   const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
   if (!otpRl.ok) {
     return NextResponse.json(
-      { error: "Terlalu banyak permintaan kode. Coba lagi nanti." },
+      { error: "Terlalu banyak permintaan verifikasi. Coba lagi nanti." },
       { status: 429, headers: { "Retry-After": String(otpRl.retryAfterSeconds) } }
     );
   }
@@ -109,17 +116,18 @@ export async function POST(request: Request) {
 
   await ensureInitialTokenBalanceRow(db, userId);
 
-  const ttl = env.AUTH_OTP_TTL_MINUTES ?? 10;
+  const origin = getRequestOrigin(request);
+  const identifier = `verify_email:${email}`;
 
-  let code: string;
+  let token: string;
   try {
-    code = await issueOtpCode({
+    const issued = await issueVerificationToken({
       db,
-      email,
-      purpose: "verify_email",
-      pepper: env.NEXTAUTH_SECRET,
-      ttlMinutes: ttl
+      identifier,
+      secret: env.NEXTAUTH_SECRET,
+      ttlMs: 24 * 60 * 60_000
     });
+    token = issued.token;
   } catch {
     // Best-effort cleanup to avoid creating a user that can't be verified.
     try {
@@ -127,7 +135,7 @@ export async function POST(request: Request) {
     } catch {}
 
     return NextResponse.json(
-      { error: "Gagal membuat kode verifikasi. Coba lagi nanti." },
+      { error: "Gagal membuat link verifikasi. Coba lagi nanti." },
       { status: 500 }
     );
   }
@@ -135,7 +143,14 @@ export async function POST(request: Request) {
   let emailSent = false;
   if (getResendClient()) {
     try {
-      await sendAuthCodeEmail({ to: email, code, purpose: "verify_email" });
+      const verifyUrl = `${origin}/api/auth/verify-email?email=${encodeURIComponent(
+        email
+      )}&token=${encodeURIComponent(token)}`;
+      await sendVerifyEmailLinkEmail({
+        to: email,
+        name: parsed.data.name ?? null,
+        verifyUrl
+      });
       emailSent = true;
     } catch {
       emailSent = false;

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
@@ -8,8 +7,8 @@ import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { rateLimitAuth, rateLimitOtpSend } from "@/lib/ratelimit";
-import { getResendClient, sendVerifyEmailLinkEmail } from "@/lib/resend";
 import { getClientIp } from "@/lib/request-ip";
+import { getResendClient, sendVerifyEmailLinkEmail } from "@/lib/resend";
 import { issueVerificationToken } from "@/lib/verification-token";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +42,20 @@ export async function POST(request: Request) {
   }
 
   const email = parsed.data.email.toLowerCase();
+  const db = getDb();
+
+  const rows = await db
+    .select({ name: users.name, emailVerified: users.emailVerified })
+    .from(users)
+    .where(sql`lower(${users.email}) = lower(${email})`)
+    .limit(1);
+  const user = rows[0];
+
+  // Anti-enumeration: tetap balas ok meskipun user tidak ada / sudah verified.
+  if (!user || user.emailVerified) {
+    return NextResponse.json({ ok: true, emailSent: true });
+  }
+
   const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
   if (!otpRl.ok) {
     return NextResponse.json(
@@ -51,21 +64,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const db = getDb();
-  const rows = await db
-    .select({ id: users.id, name: users.name, emailVerified: users.emailVerified })
-    .from(users)
-    .where(sql`lower(${users.email}) = lower(${email})`)
-    .limit(1);
-
-  const user = rows[0];
-  // Anti-enumeration: tetap balas ok meskipun user tidak ada / sudah verified.
-  if (!user?.id || user.emailVerified) {
-    return NextResponse.json({ ok: true, emailSent: true });
-  }
-
   const origin = getRequestOrigin(request);
   const identifier = `verify_email:${email}`;
+
   const issued = await issueVerificationToken({
     db,
     identifier,
@@ -92,3 +93,4 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true, emailSent });
 }
+

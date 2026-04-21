@@ -4,4 +4,5 @@ export type AuthActionResponse = {
   error?: string;
   notRegistered?: boolean;
   notVerified?: boolean;
+  mfaRequired?: boolean;
 };

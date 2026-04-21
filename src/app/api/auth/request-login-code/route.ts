@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   const now = new Date();
   if (!user?.id || !user.passwordHash) {
     return NextResponse.json(
-      { error: "Email tidak terdaftar.", notRegistered: true },
+      { error: "Email atau password salah." },
       { status: 401 }
     );
   }
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   if (!passOk) {
     const nextFailed = (user.loginFailedCount ?? 0) + 1;
     const lock =
-      nextFailed >= 10 ? new Date(now.getTime() + 15 * 60_000) : null;
+      nextFailed >= 5 ? new Date(now.getTime() + 15 * 60_000) : null;
     await db
       .update(users)
       .set({
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
         loginLockedUntil: lock
       })
       .where(eq(users.id, user.id));
-    return NextResponse.json({ error: "Email/password salah." }, { status: 401 });
+    return NextResponse.json({ error: "Email atau password salah." }, { status: 401 });
   }
 
   if (!user.emailVerified) {
@@ -117,4 +117,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
-

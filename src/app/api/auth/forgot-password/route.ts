@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
@@ -8,8 +7,8 @@ import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
 import { getRequestOrigin } from "@/lib/request-origin";
 import { rateLimitAuth, rateLimitOtpSend } from "@/lib/ratelimit";
-import { getResendClient, sendVerifyEmailLinkEmail } from "@/lib/resend";
 import { getClientIp } from "@/lib/request-ip";
+import { getResendClient, sendResetPasswordLinkEmail } from "@/lib/resend";
 import { issueVerificationToken } from "@/lib/verification-token";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +21,7 @@ export async function POST(request: Request) {
   const env = getServerEnv();
   const ip = getClientIp(request);
 
-  const rl = await rateLimitAuth(`resend_verify:${ip}`);
+  const rl = await rateLimitAuth(`forgot_password:${ip}`);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Terlalu banyak percobaan. Coba lagi nanti." },
@@ -39,56 +38,54 @@ export async function POST(request: Request) {
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid input" }, { status: 422 });
+    return NextResponse.json({ ok: true });
   }
 
   const email = parsed.data.email.toLowerCase();
-  const otpRl = await rateLimitOtpSend(`verify_email:${email}:${ip}`);
-  if (!otpRl.ok) {
-    return NextResponse.json(
-      { error: "Terlalu banyak permintaan verifikasi. Coba lagi nanti." },
-      { status: 429, headers: { "Retry-After": String(otpRl.retryAfterSeconds) } }
-    );
-  }
-
   const db = getDb();
+
   const rows = await db
-    .select({ id: users.id, name: users.name, emailVerified: users.emailVerified })
+    .select({ name: users.name })
     .from(users)
     .where(sql`lower(${users.email}) = lower(${email})`)
     .limit(1);
 
   const user = rows[0];
-  // Anti-enumeration: tetap balas ok meskipun user tidak ada / sudah verified.
-  if (!user?.id || user.emailVerified) {
-    return NextResponse.json({ ok: true, emailSent: true });
+
+  // Anti-enumeration: selalu return ok.
+  if (!user) {
+    return NextResponse.json({ ok: true });
+  }
+
+  const sendRl = await rateLimitOtpSend(`reset_password:${email}:${ip}`);
+  if (!sendRl.ok) {
+    return NextResponse.json(
+      { error: "Terlalu banyak permintaan. Coba lagi nanti." },
+      { status: 429, headers: { "Retry-After": String(sendRl.retryAfterSeconds) } }
+    );
   }
 
   const origin = getRequestOrigin(request);
-  const identifier = `verify_email:${email}`;
+  const identifier = `reset_password:${email}`;
+
   const issued = await issueVerificationToken({
     db,
     identifier,
     secret: env.NEXTAUTH_SECRET,
-    ttlMs: 24 * 60 * 60_000
+    ttlMs: 60 * 60_000
   });
 
-  let emailSent = false;
   if (getResendClient()) {
     try {
-      const verifyUrl = `${origin}/api/auth/verify-email?email=${encodeURIComponent(
+      const resetUrl = `${origin}/reset-password?email=${encodeURIComponent(
         email
       )}&token=${encodeURIComponent(issued.token)}`;
-      await sendVerifyEmailLinkEmail({
-        to: email,
-        name: user.name ?? null,
-        verifyUrl
-      });
-      emailSent = true;
+      await sendResetPasswordLinkEmail({ to: email, resetUrl });
     } catch {
-      emailSent = false;
+      // Best-effort: jangan bocorkan detail ke client.
     }
   }
 
-  return NextResponse.json({ ok: true, emailSent });
+  return NextResponse.json({ ok: true });
 }
+

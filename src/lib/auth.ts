@@ -94,7 +94,7 @@ export function getAuthOptions(): NextAuthOptions {
           if (!passwordOk) {
             const nextFailed = (user.loginFailedCount ?? 0) + 1;
             const lock =
-              nextFailed >= 10 ? new Date(now.getTime() + 15 * 60_000) : null;
+              nextFailed >= 5 ? new Date(now.getTime() + 15 * 60_000) : null;
             await db
               .update(users)
               .set({

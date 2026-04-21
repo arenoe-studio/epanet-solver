@@ -87,3 +87,67 @@ export async function sendAuthCodeEmail(opts: {
     text: `Kode Anda: ${opts.code}\n\nKode berlaku beberapa menit. Jika Anda tidak merasa meminta kode ini, abaikan email ini.\n`
   });
 }
+
+export async function sendVerifyEmailLinkEmail(opts: {
+  to: string;
+  name?: string | null;
+  verifyUrl: string;
+}) {
+  const resend = getResend();
+  if (!resend) return;
+
+  const from =
+    process.env.AUTH_EMAIL_FROM ?? "EPANET Solver <onboarding@resend.dev>";
+  const subject = "Verifikasi Email Akun Anda - EPANET Solver";
+  const greetingName = opts.name?.trim() ? opts.name.trim() : "Pengguna baru";
+
+  await resend.emails.send({
+    from,
+    to: opts.to,
+    subject,
+    text: [
+      `Halo ${greetingName},`,
+      "",
+      "Terima kasih telah mendaftar di EPANET Solver.",
+      "Klik link di bawah untuk memverifikasi alamat email Anda (berlaku 24 jam):",
+      "",
+      opts.verifyUrl,
+      "",
+      "Jika Anda tidak merasa mendaftar, abaikan email ini.",
+      "",
+      "Salam,",
+      "Tim EPANET Solver"
+    ].join("\n")
+  });
+}
+
+export async function sendResetPasswordLinkEmail(opts: {
+  to: string;
+  resetUrl: string;
+}) {
+  const resend = getResend();
+  if (!resend) return;
+
+  const from =
+    process.env.AUTH_EMAIL_FROM ?? "EPANET Solver <onboarding@resend.dev>";
+  const subject = "Reset Password - EPANET Solver";
+
+  await resend.emails.send({
+    from,
+    to: opts.to,
+    subject,
+    text: [
+      "Halo,",
+      "",
+      "Kami menerima permintaan reset password untuk akun ini.",
+      "Klik link di bawah (berlaku 1 jam):",
+      "",
+      opts.resetUrl,
+      "",
+      "Jika Anda tidak meminta ini, abaikan email ini. Password tidak akan berubah.",
+      "",
+      "Salam,",
+      "Tim EPANET Solver"
+    ].join("\n")
+  });
+}

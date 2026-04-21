@@ -1,16 +1,12 @@
-import { VerifyClient } from "./VerifyClient";
+import { redirect } from "next/navigation";
 
 export default function VerifyEmailPage(props: {
-  searchParams?: { email?: string; sent?: string; callbackUrl?: string };
+  searchParams?: { email?: string; sent?: string };
 }) {
-  const initialEmail = props.searchParams?.email ?? "";
-  const sent = props.searchParams?.sent === "1";
-  const callbackUrl = props.searchParams?.callbackUrl;
-  return (
-    <VerifyClient
-      initialEmail={initialEmail}
-      callbackUrl={callbackUrl}
-      initialResendCooldownSeconds={sent ? 60 : 0}
-    />
-  );
+  const email = props.searchParams?.email ?? "";
+  const sent = props.searchParams?.sent ?? "0";
+  const qp = new URLSearchParams();
+  if (email) qp.set("email", email);
+  qp.set("sent", sent === "1" ? "1" : "0");
+  redirect(`/verify-email-notice?${qp.toString()}`);
 }

@@ -159,12 +159,20 @@ export function Navbar() {
 
         <div className="flex items-center justify-end">
         {!isLoggedIn ? (
-          <Link
-            href="/login?callbackUrl=%2Fupload"
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-expo-black px-5 text-sm font-semibold text-white transition-opacity hover:opacity-80 active:scale-[0.98]"
-          >
-            Coba Gratis
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/login?callbackUrl=%2Fdashboard"
+              className="inline-flex h-9 items-center gap-2 rounded-full border border-border-lavender bg-white px-5 text-sm font-semibold text-expo-black transition hover:bg-cloud-gray active:scale-[0.98]"
+            >
+              Masuk
+            </Link>
+            <Link
+              href="/register"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-expo-black px-5 text-sm font-semibold text-white transition-opacity hover:opacity-80 active:scale-[0.98]"
+            >
+              Daftar
+            </Link>
+          </div>
         ) : (
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 rounded-full border border-border-lavender bg-white px-3 py-1.5 text-xs">

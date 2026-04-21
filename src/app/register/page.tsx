@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { RegisterClient } from "./RegisterClient";
 
 export default function RegisterPage() {
-  redirect("/login");
+  return <RegisterClient />;
 }

@@ -7,7 +7,6 @@ import { users } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/password";
 import { rateLimitAuth } from "@/lib/ratelimit";
 import { getClientIp } from "@/lib/request-ip";
-import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +46,8 @@ export async function POST(request: Request) {
       id: users.id,
       passwordHash: users.passwordHash,
       emailVerified: users.emailVerified,
-      loginFailedCount: users.loginFailedCount,
-      loginLockedUntil: users.loginLockedUntil,
+      mfaEnabled: users.mfaEnabled,
+      loginLockedUntil: users.loginLockedUntil
     })
     .from(users)
     .where(sql`lower(${users.email}) = lower(${email})`)
@@ -59,7 +58,7 @@ export async function POST(request: Request) {
 
   if (!user?.id || !user.passwordHash) {
     return NextResponse.json(
-      { error: "Email tidak terdaftar.", notRegistered: true },
+      { error: "Email atau password salah.", notRegistered: true },
       { status: 401 }
     );
   }
@@ -73,23 +72,23 @@ export async function POST(request: Request) {
 
   const passOk = verifyPassword(parsed.data.password, user.passwordHash);
   if (!passOk) {
-    const nextFailed = (user.loginFailedCount ?? 0) + 1;
-    const lock =
-      nextFailed >= 10 ? new Date(now.getTime() + 15 * 60_000) : null;
-    await db
-      .update(users)
-      .set({ loginFailedCount: nextFailed, loginLockedUntil: lock })
-      .where(eq(users.id, user.id));
     return NextResponse.json(
-      { error: "Email/password salah." },
+      { error: "Email atau password salah." },
       { status: 401 }
     );
   }
 
   if (!user.emailVerified) {
     return NextResponse.json(
-      { error: "Akun belum diaktivasi.", notVerified: true },
+      { error: "Email belum diverifikasi.", notVerified: true },
       { status: 403 }
+    );
+  }
+
+  if (user.mfaEnabled) {
+    return NextResponse.json(
+      { error: "Butuh kode OTP.", mfaRequired: true },
+      { status: 428 }
     );
   }
 
