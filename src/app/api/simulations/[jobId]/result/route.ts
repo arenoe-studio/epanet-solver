@@ -307,6 +307,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const pipes = Array.isArray(pipesFull) ? pipesFull.map(normalizePipe) : undefined;
   const materials = Array.isArray(materialsFull) ? materialsFull : undefined;
   const detailsTruncated = false;
+  const warnings = Array.isArray((result as any)?.warnings) ? ((result as any).warnings as string[]) : undefined;
+  const diagnostics = (result as any)?.diagnostics;
 
   const fileBase = `/api/simulations/${encodeURIComponent(jobId)}/files`;
   const filesV1 = {
@@ -344,6 +346,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       pipes,
       materials,
       networkInfo: (result as any).networkInfo,
+      warnings,
+      diagnostics,
       detailsTruncated
     });
   }
@@ -442,6 +446,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       pipes,
       materials,
       networkInfo: (result as any).networkInfo,
+      warnings,
+      diagnostics,
       detailsTruncated
     });
   } catch (e) {

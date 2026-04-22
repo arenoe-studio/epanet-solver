@@ -12,6 +12,50 @@ from .config import (
     HL_MAX,
 )
 
+# ===========================================================================
+# UNIT CONSISTENCY AUDIT (pressure vs head vs elevation)
+# ===========================================================================
+
+def _epanet_inp_units(wn: wntr.network.WaterNetworkModel) -> str:
+    try:
+        units = getattr(wn.options.hydraulic, "inpfile_units", None) or getattr(
+            wn.options.hydraulic, "inp_units", None
+        )
+        return str(units or "LPS").strip().upper()
+    except Exception:
+        return "LPS"
+
+def _junction_elevations_m(wn: wntr.network.WaterNetworkModel) -> pd.Series:
+    elev: dict[str, float] = {}
+    for nid in wn.junction_name_list:
+        try:
+            elev[nid] = float(getattr(wn.get_node(nid), "elevation", 0.0))
+        except Exception:
+            elev[nid] = 0.0
+    return pd.Series(elev, dtype="float64")
+
+def _pressure_from_head_m(wn: wntr.network.WaterNetworkModel, head_m: pd.Series) -> pd.Series:
+    elev_m = _junction_elevations_m(wn)
+    head_j = head_m.reindex(elev_m.index).astype("float64")
+    return (head_j - elev_m).astype("float64")
+
+def _median_abs_diff(a: pd.Series, b: pd.Series) -> float | None:
+    try:
+        aa = a.astype("float64")
+        bb = b.astype("float64")
+        d = (aa - bb).abs()
+        d = d[pd.notna(d)]
+        if d.empty:
+            return None
+        return float(d.median())
+    except Exception:
+        return None
+
+def _attach_unit_audit(sim_results: dict, audit: dict) -> dict:
+    # Keep audit data JSON-serializable; never put pandas objects here.
+    sim_results["_unit_audit"] = audit
+    return sim_results
+
 
 # ===========================================================================
 # SIMULASI HIDRAULIK
@@ -71,12 +115,26 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
             "Periksa konvergensi jaringan atau parameter simulasi."
         )
 
-    pressure = results.node["pressure"].iloc[0]
-    pressure = pressure[pressure.index.isin(wn.junction_name_list)]
-
     velocity = results.link["velocity"].iloc[0]
     flow     = results.link["flowrate"].iloc[0]
-    head     = results.node["head"].iloc[0]
+    head     = results.node["head"].iloc[0].astype("float64")
+
+    pressure_raw = results.node["pressure"].iloc[0].astype("float64")
+    pressure_raw = pressure_raw[pressure_raw.index.isin(wn.junction_name_list)]
+
+    # Prefer a consistent definition: pressure (m) == head (m) - elevation (m).
+    pressure = _pressure_from_head_m(wn, head)
+    pressure = pressure[pressure.index.isin(wn.junction_name_list)]
+
+    audit: dict = {"source": str(simulator), "inpUnits": _epanet_inp_units(wn), "warnings": []}
+    med_abs = _median_abs_diff(
+        pressure_raw.reindex(wn.junction_name_list),
+        pressure.reindex(wn.junction_name_list),
+    )
+    if med_abs is not None and med_abs > 0.5:
+        audit["warnings"].append(
+            f"Pressure mismatch vs (head-elev): median |Δ|={med_abs:.3f} m; using (head-elev)."
+        )
 
     # Headloss per km dari selisih head ujung-ujung pipa (WNTR tidak expose langsung)
     hl_per_km = {}
@@ -87,13 +145,16 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         h2   = head.get(pipe.end_node_name,   0.0)
         hl_per_km[pid] = abs(h1 - h2) / L_km if L_km > 0 else 0.0
 
-    return {
-        "pressure": pressure,
-        "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
-        "headloss": pd.Series(hl_per_km),
-        "flow":     flow.reindex(wn.pipe_name_list).fillna(0),
-        "head":     head,
-    }
+    return _attach_unit_audit(
+        {
+            "pressure": pressure,
+            "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
+            "headloss": pd.Series(hl_per_km),
+            "flow":     flow.reindex(wn.pipe_name_list).fillna(0),
+            "head":     head,
+        },
+        audit,
+    )
 
 
 # ===========================================================================

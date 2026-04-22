@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import math
 import os
 import tempfile
@@ -143,6 +144,190 @@ def _pressure_debug_snapshot(eval_results: dict) -> dict:
         "highNodes": high,
         "lowNodes": low,
         "negativeNodes": neg,
+    }
+
+def _disconnected_junctions(wn: object) -> list[str]:
+    """
+    Best-effort connectivity check: junctions that are not connected to any
+    reservoir/tank.
+
+    Disconnected nodes often produce misleading / garbage head & pressure values
+    (depending on engine behavior and convergence).
+    """
+    try:
+        import networkx as nx  # type: ignore
+    except Exception:
+        return []
+
+    try:
+        graph = wn.get_graph()  # type: ignore[attr-defined]
+    except Exception:
+        return []
+
+    try:
+        undirected = graph.to_undirected()
+    except Exception:
+        try:
+            undirected = nx.Graph(graph)
+        except Exception:
+            return []
+
+    sources: list[str] = []
+    try:
+        sources.extend([str(x) for x in getattr(wn, "reservoir_name_list", [])])
+    except Exception:
+        pass
+    try:
+        sources.extend([str(x) for x in getattr(wn, "tank_name_list", [])])
+    except Exception:
+        pass
+
+    if not sources:
+        return []
+
+    reachable: set[str] = set()
+    for s in sources:
+        if s not in undirected:
+            continue
+        try:
+            reachable |= {str(n) for n in nx.node_connected_component(undirected, s)}
+        except Exception:
+            continue
+
+    try:
+        junctions = {str(x) for x in getattr(wn, "junction_name_list", [])}
+    except Exception:
+        return []
+
+    return sorted(junctions - reachable)
+
+
+def _sim_diagnostics(wn: object, sim_results: dict) -> dict:
+    """
+    Small, frontend-safe diagnostics to help debug suspicious head/pressure.
+    Returns only scalar stats + a pressure/head consistency check:
+      consistencyDiffM = pressure - (head - elevation)
+    """
+    pressure = (sim_results or {}).get("pressure")
+    head = (sim_results or {}).get("head")
+
+    def _series_minmax(series: object) -> tuple[float | None, str | None, float | None, str | None]:
+        if series is None:
+            return None, None, None, None
+        try:
+            items = list(getattr(series, "items")())
+        except Exception:
+            try:
+                items = list(series.items())  # type: ignore[union-attr]
+            except Exception:
+                return None, None, None, None
+        values: list[tuple[str, float]] = []
+        for k, v in items:
+            fv = _finite_float(v)
+            if fv is None:
+                continue
+            values.append((str(k), fv))
+        if not values:
+            return None, None, None, None
+        min_id, min_v = min(values, key=lambda kv: kv[1])
+        max_id, max_v = max(values, key=lambda kv: kv[1])
+        return min_v, min_id, max_v, max_id
+
+    p_min, p_min_id, p_max, p_max_id = _series_minmax(pressure)
+    h_min, h_min_id, h_max, h_max_id = _series_minmax(head)
+
+    very_negative_nodes: list[dict] = []
+    very_negative_count = 0
+    try:
+        if pressure is not None:
+            items = list(getattr(pressure, "items")())
+            rows: list[tuple[str, float]] = []
+            for nid, p in items:
+                fp = _finite_float(p)
+                if fp is None:
+                    continue
+                if fp < -200.0:
+                    very_negative_count += 1
+                    rows.append((str(nid), float(fp)))
+            rows.sort(key=lambda r: r[1])
+            for nid, fp in rows[:20]:
+                elev = None
+                try:
+                    n = getattr(wn, "get_node")(nid)
+                    elev = _finite_float(getattr(n, "elevation", None))
+                except Exception:
+                    elev = None
+                hh = None
+                try:
+                    if head is not None:
+                        hh = _finite_float(getattr(head, "get")(nid))
+                except Exception:
+                    hh = None
+                very_negative_nodes.append(
+                    {
+                        "id": nid,
+                        "pressureM": round(fp, 2),
+                        "headM": round(hh, 2) if hh is not None else None,
+                        "elevationM": round(elev, 2) if elev is not None else None,
+                    }
+                )
+    except Exception:
+        very_negative_nodes = []
+        very_negative_count = 0
+
+    disconnected = _disconnected_junctions(wn)
+
+    # pressure should equal (head - elevation) when pressure is in meters
+    max_abs_diff = None
+    try:
+        diffs: list[float] = []
+        for nid in getattr(wn, "junction_name_list", []) or []:
+            if pressure is None or head is None:
+                break
+            p = _finite_float(getattr(pressure, "get")(nid))
+            h = _finite_float(getattr(head, "get")(nid))
+            if p is None or h is None:
+                continue
+            try:
+                elev = float(getattr(getattr(wn, "get_node")(nid), "elevation", 0.0))
+            except Exception:
+                elev = 0.0
+            diffs.append(float(p) - (float(h) - elev))
+        if diffs:
+            max_abs_diff = max(abs(d) for d in diffs)
+    except Exception:
+        max_abs_diff = None
+
+    max_elev = None
+    max_elev_id = None
+    try:
+        elevs: list[tuple[str, float]] = []
+        for nid in getattr(wn, "junction_name_list", []) or []:
+            try:
+                elevs.append((str(nid), float(getattr(getattr(wn, "get_node")(nid), "elevation", 0.0))))
+            except Exception:
+                continue
+        if elevs:
+            max_elev_id, max_elev = max(elevs, key=lambda kv: kv[1])
+    except Exception:
+        pass
+
+    return {
+        "minPressureM": _round_or_none(p_min, 3),
+        "minPressureNode": p_min_id,
+        "maxPressureM": _round_or_none(p_max, 3),
+        "maxPressureNode": p_max_id,
+        "minHeadM": _round_or_none(h_min, 3),
+        "minHeadNode": h_min_id,
+        "maxHeadM": _round_or_none(h_max, 3),
+        "maxHeadNode": h_max_id,
+        "maxElevationM": _round_or_none(max_elev, 3),
+        "maxElevationNode": max_elev_id,
+        "pressureHeadConsistencyMaxAbsDiffM": _round_or_none(max_abs_diff, 6),
+        "disconnectedJunctionCount": len(disconnected),
+        "disconnectedJunctions": disconnected[:50],
+        "veryNegativePressureCount": int(very_negative_count),
+        "veryNegativePressureNodes": very_negative_nodes,
     }
 
 
@@ -502,6 +687,93 @@ def analyze_inp_bytes(
         except Exception:
             pass
 
+        diagnostics = {
+            "baseline": _sim_diagnostics(wn, sim_baseline),
+            "afterDiameter": _sim_diagnostics(wn_opt, sim_after),
+            "final": _sim_diagnostics(wn_opt, final_sim),
+        }
+
+        warnings: list[str] = []
+        baseline_diag = diagnostics.get("baseline") or {}
+        try:
+            disconnected_count = int(baseline_diag.get("disconnectedJunctionCount") or 0)
+            if disconnected_count > 0:
+                disconnected = baseline_diag.get("disconnectedJunctions") or []
+                suffix = ""
+                if disconnected:
+                    sample = [str(x) for x in disconnected[:12]]
+                    suffix = f" Contoh: {', '.join(sample)}"
+                    if len(disconnected) > 12:
+                        suffix += ", …"
+                warnings.append(
+                    "Sebagian junction tidak terhubung ke reservoir/tank (disconnected). "
+                    f"Hasil head/pressure untuk node ini tidak valid. Count={disconnected_count}.{suffix}"
+                )
+        except Exception:
+            pass
+        try:
+            min_p = _finite_float(baseline_diag.get("minPressureM"))
+            if min_p is not None and min_p < -200.0:
+                sample_rows = baseline_diag.get("veryNegativePressureNodes") or []
+                suffix = ""
+                if sample_rows:
+                    rows = []
+                    for row in sample_rows[:8]:
+                        try:
+                            rows.append(f"{row.get('id')}({row.get('pressureM')}m)")
+                        except Exception:
+                            continue
+                    if rows:
+                        suffix = " Contoh: " + ", ".join(rows) + (", …" if len(sample_rows) > 8 else "")
+                warnings.append(
+                    "Tekanan awal sangat negatif (< -200 m). Ini hampir selalu menandakan hasil solver tidak valid "
+                    "(non-konvergen, disconnected, atau unit mismatch)." + suffix
+                )
+        except Exception:
+            pass
+        try:
+            diff = _finite_float(baseline_diag.get("pressureHeadConsistencyMaxAbsDiffM"))
+            if diff is not None and diff > 1e-3:
+                warnings.append(
+                    "Konsistensi pressure vs (head - elevation) tidak nol. Ini biasanya menandakan pressure tidak "
+                    "berunit meter (mis. kPa/psi) atau ada anomali hasil solver."
+                )
+        except Exception:
+            pass
+
+        # Surface simulator-side unit conversion warnings (if any).
+        try:
+            stage_sims = {
+                "baseline": sim_baseline,
+                "afterDiameter": sim_after,
+                "final": final_sim,
+            }
+            for stage, sim in stage_sims.items():
+                ua = (sim or {}).get("_unit_audit") or {}
+                for msg in ua.get("warnings") or []:
+                    warnings.append(f"[{stage}] {msg}")
+        except Exception:
+            pass
+
+        # Persist diagnostics for post-mortem debugging when running as jobs.
+        try:
+            if work_dir:
+                (Path(work_dir) / "solver_diagnostics.json").write_text(
+                    json.dumps(
+                        {
+                            "warnings": warnings,
+                            "diagnostics": diagnostics,
+                            "simulatorEnv": os.environ.get("EPANET_SOLVER_SIMULATOR"),
+                            "requireEpanetEnv": os.environ.get("EPANET_SOLVER_REQUIRE_EPANET"),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+        except Exception:
+            pass
+
         response: dict = {
             "success": True,
             "summary": {
@@ -525,7 +797,14 @@ def analyze_inp_bytes(
             "networkInfo": {
                 "totalDemandLps": round(total_demand_m3s * 1000.0, 2),
                 "headReservoirM": round(head_reservoir_m, 1),
+                "unitAudit": {
+                    "baseline": (sim_baseline or {}).get("_unit_audit"),
+                    "afterDiameter": (sim_after or {}).get("_unit_audit"),
+                    "final": (final_sim or {}).get("_unit_audit"),
+                },
             },
+            "diagnostics": diagnostics,
+            "warnings": warnings,
             "files": {},
             "filesV1": {"inpPath": str(out_inp_v1), "mdPath": str(out_md_v1)},
             "filesFinal": (

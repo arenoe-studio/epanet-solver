@@ -178,4 +178,10 @@ export type AnalysisResult = {
   pipes?: PipeResult[];
   materials?: MaterialResult[];
   networkInfo?: NetworkInfo;
+  warnings?: string[];
+  diagnostics?: {
+    baseline?: Record<string, unknown>;
+    afterDiameter?: Record<string, unknown>;
+    final?: Record<string, unknown>;
+  };
 };

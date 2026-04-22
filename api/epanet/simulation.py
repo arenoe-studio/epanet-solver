@@ -20,6 +20,88 @@ from .config import (
 class EpanetToolkitUnavailable(RuntimeError):
     """EPANET Toolkit via EPyT (epyt) is unavailable or failed to run."""
 
+# ===========================================================================
+# UNIT NORMALIZATION (EPANET vs WNTR vs EPyT)
+# ===========================================================================
+
+# EPANET flow units: SI set => length outputs in meters, pressure outputs in meters.
+# US set => length outputs in feet, pressure outputs in psi.
+_EPANET_SI_FLOW_UNITS_TO_M3S: dict[str, float] = {
+    "LPS": 1.0e-3,                 # L/s
+    "LPM": 1.0e-3 / 60.0,          # L/min
+    "MLD": 1000.0 / 86400.0,       # million L/day = 1000 m3/day
+    "CMH": 1.0 / 3600.0,           # m3/hour
+    "CMD": 1.0 / 86400.0,          # m3/day
+}
+
+_EPANET_US_FLOW_UNITS_TO_M3S: dict[str, float] = {
+    "CFS": 0.028316846592,         # ft3/s
+    "GPM": 0.003785411784 / 60.0,  # US gal/min
+    "MGD": (1_000_000.0 * 0.003785411784) / 86400.0,  # million US gal/day
+    "IMGD": (1_000_000.0 * 0.00454609) / 86400.0,     # million imperial gal/day
+    "AFD": 1233.48184 / 86400.0,   # acre-ft/day
+}
+
+_FT_TO_M = 0.3048
+_PSI_TO_MH2O = 6894.757293168 / 9806.65  # psi -> meters of water column
+
+def _epanet_inp_units(wn: wntr.network.WaterNetworkModel) -> str:
+    try:
+        units = getattr(wn.options.hydraulic, "inpfile_units", None) or getattr(
+            wn.options.hydraulic, "inp_units", None
+        )
+        return str(units or "LPS").strip().upper()
+    except Exception:
+        return "LPS"
+
+def _epanet_unit_factors(inp_units: str) -> dict[str, float]:
+    u = (inp_units or "").strip().upper()
+    flow_factor = _EPANET_SI_FLOW_UNITS_TO_M3S.get(u)
+    if flow_factor is None:
+        flow_factor = _EPANET_US_FLOW_UNITS_TO_M3S.get(u)
+
+    # Default to SI (no conversion) if unit is unknown; we'll still run a
+    # pressure/head consistency audit later.
+    is_us = u in _EPANET_US_FLOW_UNITS_TO_M3S
+    return {
+        "length_to_m": _FT_TO_M if is_us else 1.0,
+        "velocity_to_mps": _FT_TO_M if is_us else 1.0,
+        "pressure_to_m": _PSI_TO_MH2O if is_us else 1.0,
+        "flow_to_m3s": float(flow_factor) if flow_factor is not None else (1.0e-3 if u == "LPS" else 1.0),
+        "is_us": 1.0 if is_us else 0.0,
+    }
+
+def _junction_elevations_m(wn: wntr.network.WaterNetworkModel) -> pd.Series:
+    elev: dict[str, float] = {}
+    for nid in wn.junction_name_list:
+        try:
+            elev[nid] = float(getattr(wn.get_node(nid), "elevation", 0.0))
+        except Exception:
+            elev[nid] = 0.0
+    return pd.Series(elev, dtype="float64")
+
+def _pressure_from_head_m(wn: wntr.network.WaterNetworkModel, head_m: pd.Series) -> pd.Series:
+    elev_m = _junction_elevations_m(wn)
+    head_j = head_m.reindex(elev_m.index).astype("float64")
+    return (head_j - elev_m).astype("float64")
+
+def _median_abs_diff(a: pd.Series, b: pd.Series) -> float | None:
+    try:
+        aa = a.astype("float64")
+        bb = b.astype("float64")
+        d = (aa - bb).abs()
+        d = d[pd.notna(d)]
+        if d.empty:
+            return None
+        return float(d.median())
+    except Exception:
+        return None
+
+def _attach_unit_audit(sim_results: dict, audit: dict) -> dict:
+    # Keep audit data JSON-serializable; never put pandas objects here.
+    sim_results["_unit_audit"] = audit
+    return sim_results
+
 # EPANET toolkit bindings (both WNTR EpanetSimulator and EPyT) are not
 # thread-safe. Concurrent calls can corrupt process memory and crash the
 # server (e.g., glibc "double free or corruption").
@@ -140,15 +222,71 @@ def _run_simulation_epyt(wn: wntr.network.WaterNetworkModel) -> dict:
 
         raw = _run_epyt_on_inp(Path(tmp_path))
 
-        head = pd.Series(raw["node_head"])
-        pressure = pd.Series(raw["node_pressure"])
-        pressure = pressure[pressure.index.isin(wn.junction_name_list)]
+        inp_units = _epanet_inp_units(wn)
+        factors = _epanet_unit_factors(inp_units)
+
+        head = pd.Series(raw["node_head"], dtype="float64") * float(factors["length_to_m"])
+        pressure_raw = pd.Series(raw["node_pressure"], dtype="float64") * float(factors["pressure_to_m"])
 
         velocity_map = raw["link_velocity"]
         flow_map = raw["link_flow"]
 
-        velocity = pd.Series({pid: float(velocity_map.get(pid, 0.0)) for pid in wn.pipe_name_list})
-        flow = pd.Series({pid: float(flow_map.get(pid, 0.0)) for pid in wn.pipe_name_list})
+        velocity = (
+            pd.Series({pid: float(velocity_map.get(pid, 0.0)) for pid in wn.pipe_name_list}, dtype="float64")
+            * float(factors["velocity_to_mps"])
+        )
+        flow = (
+            pd.Series({pid: float(flow_map.get(pid, 0.0)) for pid in wn.pipe_name_list}, dtype="float64")
+            * float(factors["flow_to_m3s"])
+        )
+
+        # Prefer a consistent definition: pressure (m) == head (m) - elevation (m).
+        # This also mitigates common EPANET/EPyT output unit mismatches (psi/kPa).
+        pressure = _pressure_from_head_m(wn, head)
+
+        audit: dict = {
+            "source": "epyt",
+            "inpUnits": inp_units,
+            "factors": {
+                "length_to_m": float(factors["length_to_m"]),
+                "velocity_to_mps": float(factors["velocity_to_mps"]),
+                "pressure_to_m": float(factors["pressure_to_m"]),
+                "flow_to_m3s": float(factors["flow_to_m3s"]),
+                "is_us": bool(factors["is_us"]),
+            },
+            "warnings": [],
+        }
+
+        # Compare EPyT-reported pressure vs computed (head-elev) after conversion.
+        prj = pressure_raw.reindex(wn.junction_name_list)
+        pcj = pressure.reindex(wn.junction_name_list)
+        med_abs = _median_abs_diff(prj, pcj)
+        if med_abs is not None and med_abs > 0.5:  # meters
+            audit["warnings"].append(
+                f"EPyT pressure mismatch vs (head-elev): median |Δ|={med_abs:.3f} m; using (head-elev)."
+            )
+
+        # Sanity check: reservoir heads should be close to model's reservoir head after conversion.
+        try:
+            ratios: list[float] = []
+            for rid in wn.reservoir_name_list:
+                try:
+                    expected = float(wn.get_node(rid).head_timeseries.base_value)
+                except Exception:
+                    expected = float(getattr(wn.get_node(rid), "head", 0.0))
+                measured = float(head.get(rid, float("nan")))
+                if expected > 1e-9 and measured == measured:
+                    ratios.append(measured / expected)
+            if ratios:
+                # If conversion is wrong, ratio will be wildly off (e.g. ~3.28 or ~0.3 or negative).
+                rmed = float(pd.Series(ratios).median())
+                audit["reservoirHeadRatioMedian"] = round(rmed, 6)
+                if rmed < 0.2 or rmed > 5.0:
+                    audit["warnings"].append(
+                        f"Reservoir head ratio looks wrong (median={rmed:.3f}); EPyT results may be invalid."
+                    )
+        except Exception:
+            pass
 
         hl_per_km: dict[str, float] = {}
         for pid in wn.pipe_name_list:
@@ -158,13 +296,16 @@ def _run_simulation_epyt(wn: wntr.network.WaterNetworkModel) -> dict:
             h2 = float(head.get(pipe.end_node_name, 0.0))
             hl_per_km[pid] = abs(h1 - h2) / L_km if L_km > 0 else 0.0
 
-        return {
+        return _attach_unit_audit(
+            {
             "pressure": pressure,
             "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
             "headloss": pd.Series(hl_per_km),
             "flow": flow.reindex(wn.pipe_name_list).fillna(0),
             "head": head,
-        }
+            },
+            audit,
+        )
     finally:
         if tmp_path:
             try:
@@ -245,12 +386,27 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
             "Periksa konvergensi jaringan atau parameter simulasi."
         )
 
-    pressure = results.node["pressure"].iloc[0]
-    pressure = pressure[pressure.index.isin(wn.junction_name_list)]
+    # WNTR's Result object may carry units depending on the simulator backend.
+    # Normalize to: head (m), pressure (m), flow (m3/s), velocity (m/s).
+    head = results.node["head"].iloc[0].astype("float64")
+    pressure_raw = results.node["pressure"].iloc[0].astype("float64")
+    pressure_raw = pressure_raw[pressure_raw.index.isin(wn.junction_name_list)]
 
     velocity = results.link["velocity"].iloc[0]
     flow     = results.link["flowrate"].iloc[0]
-    head     = results.node["head"].iloc[0]
+
+    pressure = _pressure_from_head_m(wn, head)
+    pressure = pressure[pressure.index.isin(wn.junction_name_list)]
+
+    audit: dict = {"source": str(simulator), "inpUnits": _epanet_inp_units(wn), "warnings": []}
+    med_abs = _median_abs_diff(
+        pressure_raw.reindex(wn.junction_name_list),
+        pressure.reindex(wn.junction_name_list),
+    )
+    if med_abs is not None and med_abs > 0.5:
+        audit["warnings"].append(
+            f"Pressure mismatch vs (head-elev): median |Δ|={med_abs:.3f} m; using (head-elev)."
+        )
 
     # Headloss per km dari selisih head ujung-ujung pipa (WNTR tidak expose langsung)
     hl_per_km = {}
@@ -261,13 +417,16 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         h2   = head.get(pipe.end_node_name,   0.0)
         hl_per_km[pid] = abs(h1 - h2) / L_km if L_km > 0 else 0.0
 
-    return {
+    return _attach_unit_audit(
+        {
         "pressure": pressure,
         "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
         "headloss": pd.Series(hl_per_km),
         "flow":     flow.reindex(wn.pipe_name_list).fillna(0),
         "head":     head,
-    }
+        },
+        audit,
+    )
 
 
 # ===========================================================================

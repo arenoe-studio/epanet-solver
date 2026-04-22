@@ -453,6 +453,11 @@ class handler(BaseHTTPRequestHandler):
                 "networkInfo": {
                     "totalDemandLps": round(total_demand_m3s * 1000, 2),
                     "headReservoirM": round(head_reservoir_m, 1),
+                    "unitAudit": {
+                        "baseline": (sim_baseline or {}).get("_unit_audit"),
+                        "afterDiameter": (sim_after or {}).get("_unit_audit"),
+                        "final": (final_sim_results or {}).get("_unit_audit"),
+                    },
                 },
             }
 

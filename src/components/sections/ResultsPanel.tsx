@@ -241,6 +241,7 @@ export function ResultsPanel({
   const pipes = result.pipes ?? [];
   const materials = result.materials ?? [];
   const networkInfo = result.networkInfo;
+  const warnings = result.warnings ?? [];
   const remainingIssues = result.summary.remainingIssues ?? 0;
   const remainingPressureIssues =
     (postFix?.remainingHighNodes.length ?? 0)
@@ -356,6 +357,17 @@ export function ResultsPanel({
           File:{" "}
           <span className="font-mono text-near-black">{result.fileName}</span>
         </p>
+
+        {warnings.length > 0 ? (
+          <div className="mt-4 rounded-2xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-900">
+            <div className="font-semibold">Peringatan hasil solver</div>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-yellow-900">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {/* V / HL / P indicator chips */}
         <div className="mt-4 flex flex-wrap gap-2">

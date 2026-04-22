@@ -165,7 +165,8 @@ def analyze_prv_recommendations(
     high_nodes = {
         nid
         for nid, info in eval_results["node_status"].items()
-        if any("P-HIGH" in f for f in info.get("flags", []))
+        if (not _is_synthetic_prv_node(str(nid)))
+        and any("P-HIGH" in f for f in info.get("flags", []))
     }
     if not high_nodes:
         return {"needed": False, "tokenCost": 3, "recommendations": [], "unresolvedNodes": []}
@@ -179,6 +180,18 @@ def analyze_prv_recommendations(
     # Candidate pipes: any pipe whose downstream node leads to a P-HIGH node
     candidates: list[tuple[str, str, str, set[str], float]] = []
     for pid in sorted(wn.pipe_name_list):
+        # Avoid recommending PRVs on pipes that are already adjacent to a PRV we
+        # inserted (synthetic junctions). Putting PRVs in series with no demand
+        # between them is almost always redundant in EPANET and can lead to the
+        # "2 PRV on one original link" outcome across stages.
+        try:
+            pipe = wn.get_link(pid)
+            if str(pipe.start_node_name).startswith("J_PRV_") or str(pipe.end_node_name).startswith(
+                "J_PRV_"
+            ):
+                continue
+        except Exception:
+            continue
         u, v = _pipe_dir(wn, pid, flow_by_pipe)
         reachable = _bfs_reachable(adj, v)
         covered_high = high_nodes.intersection(reachable)
