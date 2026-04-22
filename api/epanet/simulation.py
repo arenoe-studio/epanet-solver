@@ -3,11 +3,13 @@
 simulation.py â€” Simulasi hidraulik & evaluasi standar Permen PU No. 18/2007
 """
 
-import wntr
-import pandas as pd
 import os
 import tempfile
+import threading
 from pathlib import Path
+
+import pandas as pd
+import wntr
 
 from .config import (
     PRESSURE_MIN, PRESSURE_MAX,
@@ -17,6 +19,43 @@ from .config import (
 
 class EpanetToolkitUnavailable(RuntimeError):
     """EPANET Toolkit via EPyT (epyt) is unavailable or failed to run."""
+
+# EPANET toolkit bindings (both WNTR EpanetSimulator and EPyT) are not
+# thread-safe. Concurrent calls can corrupt process memory and crash the
+# server (e.g., glibc "double free or corruption").
+_EPANET_TOOLKIT_LOCK = threading.Lock()
+
+
+def _best_effort_close_epyt(handle: object) -> None:
+    """
+    Close an EPyT epanet() handle without invoking multiple teardown paths.
+
+    EPyT exposes several teardown-ish methods across versions. Calling more
+    than one can lead to double-free in the underlying native library.
+    """
+    close = getattr(handle, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+        return
+
+    close_network = getattr(handle, "closeNetwork", None)
+    if callable(close_network):
+        try:
+            close_network()
+        except Exception:
+            pass
+        return
+
+    close_hyd = getattr(handle, "closeHydraulicAnalysis", None)
+    if callable(close_hyd):
+        try:
+            close_hyd()
+        except Exception:
+            pass
+
 
 def _run_epyt_on_inp(inp_path: Path) -> dict[str, dict[str, float]]:
     """
@@ -30,40 +69,38 @@ def _run_epyt_on_inp(inp_path: Path) -> dict[str, dict[str, float]]:
             "EPANET Toolkit tidak tersedia (gagal import epyt)."
         ) from e
 
-    d = None
-    try:
-        d = epanet(str(inp_path))
-        d.openHydraulicAnalysis()
-        d.initializeHydraulicAnalysis()
-        d.runHydraulicAnalysis()
+    node_ids: list = []
+    link_ids: list = []
+    pressures: list = []
+    heads: list = []
+    flows: list = []
+    velocities: list = []
+    headloss: list = []
 
-        node_ids = list(d.getNodeNameID())
-        link_ids = list(d.getLinkNameID())
-
-        pressures = list(d.getNodePressure())
-        heads = list(d.getNodeHydraulicHead())
-        flows = list(d.getLinkFlows())
-        velocities = list(d.getLinkVelocity())
-        headloss = list(d.getLinkHeadloss())
-    except Exception as e:
-        raise EpanetToolkitUnavailable("EPANET Toolkit gagal dijalankan (epyt).") from e
-    finally:
-        # EPyT can keep file handles open unless explicitly closed. If we don't
-        # close them, long-running servers can hit `EMFILE: Too many open files`.
-        if d is not None:
-            try:
-                d.closeHydraulicAnalysis()
-            except Exception:
-                pass
-
-            for method_name in ("close", "closeNetwork", "unload", "dispose"):
-                try:
-                    method = getattr(d, method_name, None)
-                    if callable(method):
-                        method()
-                except Exception:
-                    pass
+    with _EPANET_TOOLKIT_LOCK:
         d = None
+        try:
+            d = epanet(str(inp_path))
+            d.openHydraulicAnalysis()
+            d.initializeHydraulicAnalysis()
+            d.runHydraulicAnalysis()
+
+            node_ids = list(d.getNodeNameID())
+            link_ids = list(d.getLinkNameID())
+
+            pressures = list(d.getNodePressure())
+            heads = list(d.getNodeHydraulicHead())
+            flows = list(d.getLinkFlows())
+            velocities = list(d.getLinkVelocity())
+            headloss = list(d.getLinkHeadloss())
+        except Exception as e:
+            raise EpanetToolkitUnavailable("EPANET Toolkit gagal dijalankan (epyt).") from e
+        finally:
+            # EPyT can keep file handles open unless explicitly closed. If we
+            # don't close them, long-running servers can hit EMFILE.
+            if d is not None:
+                _best_effort_close_epyt(d)
+            d = None
 
     node_pressure = {str(nid): float(p) for nid, p in zip(node_ids, pressures)}
     node_head = {str(nid): float(h) for nid, h in zip(node_ids, heads)}
@@ -156,7 +193,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     # PRV/valves are accurately supported by EPANET engine. WNTRSimulator can
     # silently ignore or approximate some controls/valves, causing PRV installs
     # to have no effect in results.
-    simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "epyt").strip().lower()
+    simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "auto").strip().lower()
     require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "1").strip().lower() in (
         "1",
         "true",
@@ -178,23 +215,29 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
             if require_epanet:
                 raise
             results = wntr.sim.WNTRSimulator(wn).run_sim()
-    elif simulator == "epanet":
-        results = wntr.sim.EpanetSimulator(wn).run_sim()
+
+    if simulator == "epanet":
+        with _EPANET_TOOLKIT_LOCK:
+            results = wntr.sim.EpanetSimulator(wn).run_sim()
     elif simulator == "wntr":
         results = wntr.sim.WNTRSimulator(wn).run_sim()
-    else:
+    else:  # auto
         try:
-            return _run_simulation_epyt(wn)
-        except EpanetToolkitUnavailable:
-            if require_epanet:
-                raise
-            results = wntr.sim.WNTRSimulator(wn).run_sim()
-        except Exception as e:
-            if require_epanet:
-                raise EpanetToolkitUnavailable(
-                    "EPANET Toolkit tidak tersedia / gagal dijalankan."
-                ) from e
-            results = wntr.sim.WNTRSimulator(wn).run_sim()
+            with _EPANET_TOOLKIT_LOCK:
+                results = wntr.sim.EpanetSimulator(wn).run_sim()
+        except Exception:
+            try:
+                return _run_simulation_epyt(wn)
+            except EpanetToolkitUnavailable:
+                if require_epanet:
+                    raise
+                results = wntr.sim.WNTRSimulator(wn).run_sim()
+            except Exception as e:
+                if require_epanet:
+                    raise EpanetToolkitUnavailable(
+                        "EPANET Toolkit tidak tersedia / gagal dijalankan."
+                    ) from e
+                results = wntr.sim.WNTRSimulator(wn).run_sim()
 
     if results.node["pressure"].empty:
         raise RuntimeError(

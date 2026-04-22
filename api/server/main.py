@@ -55,6 +55,13 @@ async def analyze(
             embed_files_base64=True,
         )
         return JSONResponse(result)
+    except OSError as e:
+        if getattr(e, "errno", None) == 24:
+            raise HTTPException(
+                status_code=503,
+                detail="Server kehabisan resource (too many open files). Kode: E_TOO_MANY_OPEN_FILES",
+            )
+        raise
     except EpanetToolkitUnavailable:
         raise HTTPException(
             status_code=503,
@@ -82,6 +89,13 @@ async def create_simulation_job(
         raw = await file.read()
         original_filename = file.filename or "network.inp"
         inp_path.write_bytes(raw)
+    except OSError as e:
+        if getattr(e, "errno", None) == 24:
+            raise HTTPException(
+                status_code=503,
+                detail="Server kehabisan resource (too many open files). Kode: E_TOO_MANY_OPEN_FILES",
+            )
+        raise
     except Exception:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to create simulation job")
@@ -107,6 +121,11 @@ async def create_simulation_job(
                 shutil.copyfile(files.report_md_final, job_dir / "report_final.md")
 
             jobs.mark_succeeded(job.id, result)
+        except OSError as e:
+            if getattr(e, "errno", None) == 24:
+                jobs.mark_failed(job.id, "E_TOO_MANY_OPEN_FILES")
+            else:
+                jobs.mark_failed(job.id, str(e))
         except EpanetToolkitUnavailable:
             jobs.mark_failed(job.id, "MAINTENANCE")
         except Exception as e:
