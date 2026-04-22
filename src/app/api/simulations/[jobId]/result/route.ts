@@ -196,25 +196,93 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   function toNumberOrNull(value: unknown): number | null {
     if (typeof value === "number") return value;
     if (typeof value === "string" && value.trim()) {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
+      const raw = value.trim();
+      const direct = Number(raw);
+      if (Number.isFinite(direct)) return direct;
+
+      // Support locales that use comma as decimal separator (e.g., "12,34").
+      if (raw.includes(",") && !raw.includes(".")) {
+        const n = Number(raw.replace(",", "."));
+        return Number.isFinite(n) ? n : null;
+      }
+
+      return null;
     }
     return null;
   }
 
+  function pickNumber(raw: any, keys: string[]): number | null {
+    for (const key of keys) {
+      const v = toNumberOrNull(raw?.[key]);
+      if (typeof v === "number") return v;
+    }
+    return null;
+  }
+
+  function pickNumberFromM3s(raw: any, keys: string[]): number | null {
+    const m3s = pickNumber(raw, keys);
+    if (typeof m3s !== "number") return null;
+    return m3s * 1000.0;
+  }
+
   const allowedNodeCodes = new Set(["P-OK", "P-LOW", "P-HIGH", "P-NEG"]);
   function normalizeNode(raw: any) {
-    const pressureBefore = toNumberOrNull(raw?.pressureBefore);
-    const pressureAfter = toNumberOrNull(raw?.pressureAfter);
-    const elevation = toNumberOrNull(raw?.elevation);
+    const elevation = pickNumber(raw, ["elevation", "elev", "elevM", "elevation_m"]);
 
-    const baseDemandLps = toNumberOrNull(raw?.baseDemandLps);
-    const headAwalM = toNumberOrNull(raw?.headAwalM);
-    const headDiameterM = toNumberOrNull(raw?.headDiameterM);
-    const headTekananM = toNumberOrNull(raw?.headTekananM);
-    const pressureAwalM = toNumberOrNull(raw?.pressureAwalM);
-    const pressureDiameterM = toNumberOrNull(raw?.pressureDiameterM);
-    const pressureTekananM = toNumberOrNull(raw?.pressureTekananM);
+    const pressureBefore = pickNumber(raw, [
+      "pressureBefore",
+      "pressure_before",
+      "pressureBeforeM",
+      "pressure_before_m"
+    ]);
+    const pressureAfter = pickNumber(raw, [
+      "pressureAfter",
+      "pressure_after",
+      "pressureAfterM",
+      "pressure_after_m"
+    ]);
+
+    const baseDemandLps =
+      pickNumber(raw, ["baseDemandLps", "base_demand_lps", "baseDemand", "base_demand"]) ??
+      pickNumberFromM3s(raw, ["baseDemandM3s", "base_demand_m3s"]);
+
+    const headAwalM_raw = pickNumber(raw, ["headAwalM", "head_awal_m", "headBefore", "head_before"]);
+    const headDiameterM_raw = pickNumber(raw, [
+      "headDiameterM",
+      "head_diameter_m",
+      "headAfter",
+      "head_after"
+    ]);
+    const headTekananM_raw = pickNumber(raw, ["headTekananM", "head_tekanan_m", "headFinal", "head_final"]);
+
+    const pressureAwalM =
+      pickNumber(raw, ["pressureAwalM", "pressure_awal_m", "pressureBefore", "pressure_before"]) ??
+      pressureBefore;
+    const pressureDiameterM =
+      pickNumber(raw, ["pressureDiameterM", "pressure_diameter_m"]) ??
+      pickNumber(raw, ["pressureAfter", "pressure_after"]) ??
+      pressureAfter;
+    const pressureTekananM =
+      pickNumber(raw, ["pressureTekananM", "pressure_tekanan_m"]) ??
+      pickNumber(raw, ["pressureAfter", "pressure_after"]) ??
+      pressureAfter;
+
+    // Fallback: if backend doesn't provide head, derive it from elevation + pressure (both meters).
+    const headAwalM =
+      headAwalM_raw ??
+      (typeof elevation === "number" && typeof pressureAwalM === "number"
+        ? elevation + pressureAwalM
+        : null);
+    const headDiameterM =
+      headDiameterM_raw ??
+      (typeof elevation === "number" && typeof pressureDiameterM === "number"
+        ? elevation + pressureDiameterM
+        : null);
+    const headTekananM =
+      headTekananM_raw ??
+      (typeof elevation === "number" && typeof pressureTekananM === "number"
+        ? elevation + pressureTekananM
+        : null);
 
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
@@ -262,32 +330,69 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       id: String(raw?.id ?? ""),
       fromNode: typeof raw?.fromNode === "string" ? raw.fromNode : null,
       toNode: typeof raw?.toNode === "string" ? raw.toNode : null,
-      length: toNumberOrNull(raw?.length),
-      roughnessC: toNumberOrNull(raw?.roughnessC),
-      diameterAwalMm: toNumberOrNull(raw?.diameterAwalMm),
-      diameterDiameterMm: toNumberOrNull(raw?.diameterDiameterMm),
-      diameterTekananMm: toNumberOrNull(raw?.diameterTekananMm),
-      flowAwalLps: toNumberOrNull(raw?.flowAwalLps),
-      flowDiameterLps: toNumberOrNull(raw?.flowDiameterLps),
-      flowTekananLps: toNumberOrNull(raw?.flowTekananLps),
-      flowAwalLpsAbs: toNumberOrNull(raw?.flowAwalLpsAbs),
-      flowDiameterLpsAbs: toNumberOrNull(raw?.flowDiameterLpsAbs),
-      flowTekananLpsAbs: toNumberOrNull(raw?.flowTekananLpsAbs),
+      length: pickNumber(raw, ["length", "len", "lengthM", "length_m"]),
+      roughnessC: pickNumber(raw, ["roughnessC", "roughness_c", "roughness", "C", "c"]),
+      diameterAwalMm:
+        pickNumber(raw, ["diameterAwalMm", "diameter_awal_mm"]) ??
+        pickNumber(raw, ["diameterBefore", "diameter_before", "diameterBeforeMm", "diameter_before_mm"]),
+      diameterDiameterMm:
+        pickNumber(raw, ["diameterDiameterMm", "diameter_diameter_mm"]) ??
+        pickNumber(raw, ["diameterAfter", "diameter_after", "diameterAfterMm", "diameter_after_mm"]),
+      diameterTekananMm:
+        pickNumber(raw, ["diameterTekananMm", "diameter_tekanan_mm"]) ??
+        pickNumber(raw, ["diameterAfter", "diameter_after", "diameterAfterMm", "diameter_after_mm"]),
+      flowAwalLps:
+        pickNumber(raw, ["flowAwalLps", "flow_awal_lps"]) ??
+        pickNumberFromM3s(raw, ["flowAwalM3s", "flow_awal_m3s"]),
+      flowDiameterLps:
+        pickNumber(raw, ["flowDiameterLps", "flow_diameter_lps"]) ??
+        pickNumberFromM3s(raw, ["flowDiameterM3s", "flow_diameter_m3s"]),
+      flowTekananLps:
+        pickNumber(raw, ["flowTekananLps", "flow_tekanan_lps"]) ??
+        pickNumberFromM3s(raw, ["flowTekananM3s", "flow_tekanan_m3s"]),
+      flowAwalLpsAbs:
+        pickNumber(raw, ["flowAwalLpsAbs", "flow_awal_lps_abs"]) ??
+        ((): number | null => {
+          const v = pickNumber(raw, ["flowAwalLps", "flow_awal_lps"]) ?? pickNumberFromM3s(raw, ["flowAwalM3s", "flow_awal_m3s"]);
+          return typeof v === "number" ? Math.abs(v) : null;
+        })(),
+      flowDiameterLpsAbs:
+        pickNumber(raw, ["flowDiameterLpsAbs", "flow_diameter_lps_abs"]) ??
+        ((): number | null => {
+          const v =
+            pickNumber(raw, ["flowDiameterLps", "flow_diameter_lps"]) ??
+            pickNumberFromM3s(raw, ["flowDiameterM3s", "flow_diameter_m3s"]);
+          return typeof v === "number" ? Math.abs(v) : null;
+        })(),
+      flowTekananLpsAbs:
+        pickNumber(raw, ["flowTekananLpsAbs", "flow_tekanan_lps_abs"]) ??
+        ((): number | null => {
+          const v =
+            pickNumber(raw, ["flowTekananLps", "flow_tekanan_lps"]) ??
+            pickNumberFromM3s(raw, ["flowTekananM3s", "flow_tekanan_m3s"]);
+          return typeof v === "number" ? Math.abs(v) : null;
+        })(),
       flowAwalDir: typeof raw?.flowAwalDir === "string" ? raw.flowAwalDir : null,
       flowDiameterDir: typeof raw?.flowDiameterDir === "string" ? raw.flowDiameterDir : null,
       flowTekananDir: typeof raw?.flowTekananDir === "string" ? raw.flowTekananDir : null,
-      velocityAwalMps: toNumberOrNull(raw?.velocityAwalMps),
-      velocityDiameterMps: toNumberOrNull(raw?.velocityDiameterMps),
-      velocityTekananMps: toNumberOrNull(raw?.velocityTekananMps),
-      unitHeadlossAwalMkm: toNumberOrNull(raw?.unitHeadlossAwalMkm),
-      unitHeadlossDiameterMkm: toNumberOrNull(raw?.unitHeadlossDiameterMkm),
-      unitHeadlossTekananMkm: toNumberOrNull(raw?.unitHeadlossTekananMkm),
-      diameterBefore: toNumberOrNull(raw?.diameterBefore ?? raw?.diameterBeforeMm),
-      diameterAfter: toNumberOrNull(raw?.diameterAfter ?? raw?.diameterAfterMm),
-      velocityBefore: toNumberOrNull(raw?.velocityBefore),
-      velocityAfter: toNumberOrNull(raw?.velocityAfter),
-      headlossBefore: toNumberOrNull(raw?.headlossBefore),
-      headlossAfter: toNumberOrNull(raw?.headlossAfter),
+      velocityAwalMps:
+        pickNumber(raw, ["velocityAwalMps", "velocity_awal_mps"]) ?? pickNumber(raw, ["velocityBefore", "velocity_before"]),
+      velocityDiameterMps:
+        pickNumber(raw, ["velocityDiameterMps", "velocity_diameter_mps"]) ?? pickNumber(raw, ["velocityAfter", "velocity_after"]),
+      velocityTekananMps:
+        pickNumber(raw, ["velocityTekananMps", "velocity_tekanan_mps"]) ?? pickNumber(raw, ["velocityAfter", "velocity_after"]),
+      unitHeadlossAwalMkm:
+        pickNumber(raw, ["unitHeadlossAwalMkm", "unit_headloss_awal_mkm"]) ?? pickNumber(raw, ["headlossBefore", "headloss_before"]),
+      unitHeadlossDiameterMkm:
+        pickNumber(raw, ["unitHeadlossDiameterMkm", "unit_headloss_diameter_mkm"]) ?? pickNumber(raw, ["headlossAfter", "headloss_after"]),
+      unitHeadlossTekananMkm:
+        pickNumber(raw, ["unitHeadlossTekananMkm", "unit_headloss_tekanan_mkm"]) ?? pickNumber(raw, ["headlossAfter", "headloss_after"]),
+      diameterBefore: pickNumber(raw, ["diameterBefore", "diameter_before", "diameterBeforeMm", "diameter_before_mm"]),
+      diameterAfter: pickNumber(raw, ["diameterAfter", "diameter_after", "diameterAfterMm", "diameter_after_mm"]),
+      velocityBefore: pickNumber(raw, ["velocityBefore", "velocity_before"]),
+      velocityAfter: pickNumber(raw, ["velocityAfter", "velocity_after"]),
+      headlossBefore: pickNumber(raw, ["headlossBefore", "headloss_before"]),
+      headlossAfter: pickNumber(raw, ["headlossAfter", "headloss_after"]),
       code
     };
   }

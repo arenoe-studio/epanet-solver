@@ -32,8 +32,27 @@ type ResultsPanelProps = {
   tokenBalance?: number | null;
 };
 
+function toFiniteNumber(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const raw = v.trim();
+  if (!raw) return null;
+
+  const direct = Number(raw);
+  if (Number.isFinite(direct)) return direct;
+
+  // Support locales that use comma as decimal separator (e.g., "12,34").
+  if (raw.includes(",") && !raw.includes(".")) {
+    const n = Number(raw.replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}
+
 function fx(v: unknown, d = 2): string {
-  return typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "—";
+  const n = toFiniteNumber(v);
+  return typeof n === "number" ? n.toFixed(d) : "—";
 }
 
 function downloadBase64File(base64: string, filename: string) {
@@ -283,9 +302,22 @@ export function ResultsPanel({
   }
 
   function nodeHeadM(n: (typeof nodes)[number]): number | null {
-    if (condition === "awal") return (n as any).headAwalM ?? null;
-    if (condition === "diameter") return (n as any).headDiameterM ?? null;
-    if (condition === "tekanan") return (n as any).headTekananM ?? null;
+    const head =
+      condition === "awal"
+        ? ((n as any).headAwalM ?? null)
+        : condition === "diameter"
+          ? ((n as any).headDiameterM ?? null)
+          : condition === "tekanan"
+            ? ((n as any).headTekananM ?? null)
+            : null;
+
+    const headN = toFiniteNumber(head);
+    if (typeof headN === "number") return headN;
+
+    const elevation = toFiniteNumber((n as any).elevation);
+    const pressure = toFiniteNumber(nodePressureM(n));
+    if (typeof elevation === "number" && typeof pressure === "number") return elevation + pressure;
+
     return null;
   }
 
@@ -496,74 +528,74 @@ export function ResultsPanel({
             onValueChange={(v) => setActiveTab(v as ResultsTab)}
             className="w-full"
           >
-            <div className="border-b border-border-lavender px-5 py-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
-                  Detail Hasil
+            <div className="space-y-3 border-b border-border-lavender px-5 py-4">
+              <TabsList className="gap-1 rounded-full border border-border-lavender bg-cloud-gray/40 p-1">
+                <TabsTrigger
+                  value="nodes"
+                  className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
+                >
+                  Node
+                </TabsTrigger>
+                <TabsTrigger
+                  value="links"
+                  className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
+                >
+                  Links
+                </TabsTrigger>
+                <TabsTrigger
+                  value="materials"
+                  className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
+                >
+                  Materials
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold tracking-[-0.01em] text-expo-black">
+                    Detail Hasil
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-gray">
+                    Pilih kondisi dan tab untuk melihat tabel.
+                  </p>
                 </div>
-                <p className="mt-0.5 text-xs text-slate-gray">
-                  Pilih kondisi dan tab untuk melihat tabel.
-                </p>
+                {!pressureOptimizationAvailable && (
+                  <div className="whitespace-nowrap text-xs text-slate-gray">
+                    Jalankan Fix Pressure untuk melihat kondisi ini.
+                  </div>
+                )}
               </div>
-              {!pressureOptimizationAvailable && (
-                <div className="whitespace-nowrap text-xs text-slate-gray">
-                  Jalankan Fix Pressure untuk melihat kondisi ini.
-                </div>
-              )}
+
+              <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
+                <PillButton active={condition === "awal"} onClick={() => setCondition("awal")}>
+                  Kondisi Awal
+                </PillButton>
+                <PillButton
+                  active={condition === "diameter"}
+                  onClick={() => setCondition("diameter")}
+                >
+                  Optimasi Diameter
+                </PillButton>
+                <PillButton
+                  active={condition === "tekanan"}
+                  disabled={!pressureOptimizationAvailable}
+                  onClick={() => setCondition("tekanan")}
+                >
+                  Optimasi Tekanan
+                </PillButton>
+              </div>
             </div>
 
-            <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
-              <PillButton active={condition === "awal"} onClick={() => setCondition("awal")}>
-                Kondisi Awal
-              </PillButton>
-              <PillButton
-                active={condition === "diameter"}
-                onClick={() => setCondition("diameter")}
-              >
-                Optimasi Diameter
-              </PillButton>
-              <PillButton
-                active={condition === "tekanan"}
-                disabled={!pressureOptimizationAvailable}
-                onClick={() => setCondition("tekanan")}
-              >
-                Optimasi Tekanan
-              </PillButton>
-            </div>
-
-            <TabsList className="gap-1 rounded-full border border-border-lavender bg-cloud-gray/40 p-1">
-              <TabsTrigger
-                value="nodes"
-                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
-              >
-                Node
-              </TabsTrigger>
-              <TabsTrigger
-                value="links"
-                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
-              >
-                Links
-              </TabsTrigger>
-              <TabsTrigger
-                value="materials"
-                className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden"
-              >
-                Materials
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="nodes">
+            <TabsContent value="nodes">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Node</TableHead>
-                    <TableHead>Elevation</TableHead>
-                    <TableHead>Base Demand</TableHead>
-                    <TableHead>Head</TableHead>
-                    <TableHead>Pressure</TableHead>
+                    <TableHead>Elevation (m)</TableHead>
+                    <TableHead>Base Demand (L/s)</TableHead>
+                    <TableHead>Head (m)</TableHead>
+                    <TableHead>Pressure (m)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -579,13 +611,13 @@ export function ResultsPanel({
                         <TableCell className="whitespace-nowrap font-medium text-expo-black">
                           {n.id}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(n.elevation, 2)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(n.elevation, 2)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx((n as any).baseDemandLps, 2)} L/s
+                          {fx((n as any).baseDemandLps ?? (n as any).baseDemand, 2)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(nodeHeadM(n), 2)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(nodeHeadM(n), 2)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(nodePressureM(n), 2)} m
+                          {fx(nodePressureM(n), 2)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -601,12 +633,12 @@ export function ResultsPanel({
                 <TableHeader>
                   <TableRow>
                     <TableHead>Links</TableHead>
-                    <TableHead>Length</TableHead>
-                    <TableHead>Diameter</TableHead>
-                    <TableHead>Roughness</TableHead>
-                    <TableHead>Flow</TableHead>
-                    <TableHead>Velocity</TableHead>
-                    <TableHead>Unit Headloss</TableHead>
+                    <TableHead>Length (m)</TableHead>
+                    <TableHead>Diameter (mm)</TableHead>
+                    <TableHead>Roughness (C)</TableHead>
+                    <TableHead>Flow (L/s)</TableHead>
+                    <TableHead>Velocity (m/s)</TableHead>
+                    <TableHead>Unit Headloss (m/km)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -622,19 +654,19 @@ export function ResultsPanel({
                         <TableCell className="whitespace-nowrap font-medium text-expo-black">
                           {p.id}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(p.length, 1)} m</TableCell>
+                        <TableCell className="whitespace-nowrap">{fx(p.length, 1)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeDiameterMm(p), 1)} mm
+                          {fx(pipeDiameterMm(p), 1)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx((p as any).roughnessC, 0)}</TableCell>
+                        <TableCell className="whitespace-nowrap">{fx((p as any).roughnessC ?? (p as any).roughness, 0)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeFlowDisplayLps(p), 3)} L/s
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {fx(pipeVelocityMps(p), 3)} m/s
+                          {fx(pipeFlowDisplayLps(p), 3)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeUnitHeadlossMkm(p), 2)} m/km
+                          {fx(pipeVelocityMps(p), 3)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {fx(pipeUnitHeadlossMkm(p), 2)}
                         </TableCell>
                       </TableRow>
                     ))
@@ -655,10 +687,10 @@ export function ResultsPanel({
                       <TableHeader>
                         <TableRow>
                           <TableHead>Pipa</TableHead>
-                          <TableHead>D Rekomendasi</TableHead>
+                          <TableHead>D Rekomendasi (mm)</TableHead>
                           <TableHead>Material</TableHead>
                           <TableHead>Nilai C</TableHead>
-                          <TableHead>Tekanan Kerja</TableHead>
+                          <TableHead>Tekanan Kerja (m)</TableHead>
                           <TableHead>Catatan</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -669,12 +701,12 @@ export function ResultsPanel({
                               {m.pipeId}
                             </TableCell>
                             <TableCell className="whitespace-nowrap">
-                              {fx(m.diameterMm, 1)} mm
+                              {fx(m.diameterMm, 1)}
                             </TableCell>
-                            <TableCell className="whitespace-nowrap">{m.material}</TableCell>
-                            <TableCell className="whitespace-nowrap">{m.C}</TableCell>
+                            <TableCell className="whitespace-nowrap">{m.material || "—"}</TableCell>
+                            <TableCell className="whitespace-nowrap">{fx(m.C, 0)}</TableCell>
                             <TableCell className="whitespace-nowrap">
-                              {fx(m.pressureWorkingM, 2)} m
+                              {fx(m.pressureWorkingM, 2)}
                             </TableCell>
                             <TableCell className="min-w-[180px]">
                               {m.notes.length > 0 ? (
