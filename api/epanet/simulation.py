@@ -30,29 +30,40 @@ def _run_epyt_on_inp(inp_path: Path) -> dict[str, dict[str, float]]:
             "EPANET Toolkit tidak tersedia (gagal import epyt)."
         ) from e
 
+    d = None
     try:
         d = epanet(str(inp_path))
         d.openHydraulicAnalysis()
         d.initializeHydraulicAnalysis()
         d.runHydraulicAnalysis()
+
+        node_ids = list(d.getNodeNameID())
+        link_ids = list(d.getLinkNameID())
+
+        pressures = list(d.getNodePressure())
+        heads = list(d.getNodeHydraulicHead())
+        flows = list(d.getLinkFlows())
+        velocities = list(d.getLinkVelocity())
+        headloss = list(d.getLinkHeadloss())
     except Exception as e:
-        raise EpanetToolkitUnavailable(
-            "EPANET Toolkit gagal dijalankan (epyt)."
-        ) from e
+        raise EpanetToolkitUnavailable("EPANET Toolkit gagal dijalankan (epyt).") from e
+    finally:
+        # EPyT can keep file handles open unless explicitly closed. If we don't
+        # close them, long-running servers can hit `EMFILE: Too many open files`.
+        if d is not None:
+            try:
+                d.closeHydraulicAnalysis()
+            except Exception:
+                pass
 
-    node_ids = list(d.getNodeNameID())
-    link_ids = list(d.getLinkNameID())
-
-    pressures = list(d.getNodePressure())
-    heads = list(d.getNodeHydraulicHead())
-    flows = list(d.getLinkFlows())
-    velocities = list(d.getLinkVelocity())
-    headloss = list(d.getLinkHeadloss())
-
-    try:
-        d.closeHydraulicAnalysis()
-    except Exception:
-        pass
+            for method_name in ("close", "closeNetwork", "unload", "dispose"):
+                try:
+                    method = getattr(d, method_name, None)
+                    if callable(method):
+                        method()
+                except Exception:
+                    pass
+        d = None
 
     node_pressure = {str(nid): float(p) for nid, p in zip(node_ids, pressures)}
     node_head = {str(nid): float(h) for nid, h in zip(node_ids, heads)}
