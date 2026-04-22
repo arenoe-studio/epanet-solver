@@ -8,11 +8,28 @@ export default function DocsIndexPage() {
           Dokumentasi Teknis
         </h1>
         <p className="text-sm text-slate-gray">
-          Arsip dokumentasi internal tentang cara kerja mesin analisis EPANET Solver.
+          Arsip dokumentasi internal tentang sistem dan mesin analisis EPANET Solver.
         </p>
       </header>
 
       <section className="mt-10 space-y-4 text-sm leading-relaxed">
+        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
+          <h2 className="text-base font-semibold text-expo-black">Cara Kerja Sistem</h2>
+          <p className="mt-2 text-slate-gray">
+            Ringkasan alur penggunaan layanan: upload file{" "}
+            <span className="font-mono text-near-black">.inp</span>, proses analisis,
+            dan unduh hasil.
+          </p>
+          <div className="mt-4">
+            <Link
+              className="text-link-cobalt underline underline-offset-4"
+              href="/docs/cara-kerja"
+            >
+              Buka dokumentasi
+            </Link>
+          </div>
+        </div>
+
         <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
           <h2 className="text-base font-semibold text-expo-black">
             Mesin Simulasi: WNTR & Pengaturan .inp
@@ -35,4 +52,3 @@ export default function DocsIndexPage() {
     </main>
   );
 }
-

@@ -32,12 +32,6 @@ export function Footer() {
                 Dokumentasi
               </Link>
               <Link
-                href="/#how-it-works"
-                className="text-sm text-near-black transition-colors hover:text-expo-black"
-              >
-                Cara Kerja
-              </Link>
-              <Link
                 href="/#pricing"
                 className="text-sm text-near-black transition-colors hover:text-expo-black"
               >
@@ -55,13 +49,7 @@ export function Footer() {
                 href="/contact"
                 className="text-sm text-near-black transition-colors hover:text-expo-black"
               >
-                Kirim Feedback / Saran
-              </Link>
-              <Link
-                href="/contact"
-                className="text-sm text-near-black transition-colors hover:text-expo-black"
-              >
-                Kontak
+                Kontak Dan Saran
               </Link>
               <Link
                 href="/privacy-policy"

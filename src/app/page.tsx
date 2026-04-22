@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 
 import { FAQSection } from "@/components/sections/FAQSection";
 import { HeroSection } from "@/components/sections/HeroSection";
-import { HowItWorks } from "@/components/sections/HowItWorks";
 import { NetworkPreviewStrip } from "@/components/sections/NetworkPreviewStrip";
 import { PricingSection } from "@/components/sections/PricingSection";
 import { TechnicalCredibility } from "@/components/sections/TechnicalCredibility";
@@ -29,7 +28,6 @@ export default function HomePage() {
         }}
       />
       <NetworkPreviewStrip />
-      <HowItWorks />
       <TechnicalCredibility />
       <VideoTutorial />
       <PricingSection />

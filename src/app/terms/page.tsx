@@ -27,73 +27,75 @@ export default function TermsPage() {
 
       <section className="mt-10 space-y-6 text-sm leading-relaxed text-near-black">
         <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">1. Layanan</h2>
+          <h2 className="text-base font-semibold text-expo-black">Ketentuan Umum</h2>
+          <p className="mt-2 text-slate-gray">
+            Syarat &amp; Ketentuan ini mengatur akses dan penggunaan layanan {business.name}.
+            Dengan mengakses atau menggunakan layanan, Anda menyatakan setuju untuk
+            terikat pada ketentuan ini.
+          </p>
+
+          <h2 className="mt-6 text-base font-semibold text-expo-black">Layanan</h2>
           <p className="mt-2 text-slate-gray">
             {business.name} menyediakan layanan analisis file{" "}
             <span className="font-mono text-near-black">.inp</span> EPANET dan
-            menghasilkan output yang dapat diunduh. Layanan bersifat digital dan
-            disediakan sebagaimana adanya.
+            menghasilkan output digital yang dapat diunduh. Hasil analisis disediakan
+            untuk tujuan edukasi dan/atau asistensi teknis sesuai konteks penggunaan
+            Anda, serta diberikan sebagaimana adanya.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">2. Akun</h2>
+          <h2 className="mt-6 text-base font-semibold text-expo-black">Akun</h2>
           <p className="mt-2 text-slate-gray">
-            Untuk menggunakan fitur analisis dan pembelian token, Anda perlu masuk
-            menggunakan akun yang didukung. Anda bertanggung jawab atas aktivitas yang
-            terjadi pada akun Anda.
+            Untuk menggunakan fitur tertentu (termasuk analisis dan pembelian token),
+            Anda dapat diminta untuk masuk menggunakan akun yang didukung. Anda
+            bertanggung jawab atas kerahasiaan kredensial serta seluruh aktivitas yang
+            terjadi melalui akun Anda.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            3. Token, Harga, dan Pembayaran
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Token, Harga, dan Pembayaran
           </h2>
           <p className="mt-2 text-slate-gray">
             Pembelian token dilakukan dalam mata uang Rupiah (IDR). Pembayaran diproses
-            melalui Midtrans (metode pembayaran dapat berbeda-beda sesuai ketersediaan).
-            Setelah pembayaran terkonfirmasi, token akan ditambahkan ke saldo akun Anda.
+            melalui penyedia pembayaran pihak ketiga (misalnya Midtrans), dan metode
+            pembayaran dapat berbeda sesuai ketersediaan. Setelah pembayaran
+            terkonfirmasi, token akan ditambahkan ke saldo akun Anda sesuai jumlah yang
+            dibeli.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            4. Penggunaan Token
-          </h2>
+          <h2 className="mt-6 text-base font-semibold text-expo-black">Penggunaan Token</h2>
           <p className="mt-2 text-slate-gray">
             Token digunakan untuk menjalankan analisis. Jumlah token yang dibutuhkan
-            ditampilkan di aplikasi. Token yang sudah terpakai tidak dapat dikembalikan.
+            ditampilkan di aplikasi sebelum analisis dijalankan. Token yang telah
+            digunakan tidak dapat dikembalikan, kecuali ditentukan lain dalam kebijakan
+            yang berlaku.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            5. Kebijakan Pengembalian Dana
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Kebijakan Pengembalian Dana
           </h2>
           <p className="mt-2 text-slate-gray">
-            Untuk detail kebijakan pengembalian dana, silakan lihat halaman{" "}
+            Ketentuan pengembalian dana diatur dalam halaman{" "}
             <a className="text-link-cobalt underline" href="/refund-policy">
               Refund Policy
             </a>
             .
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            6. Batasan Tanggung Jawab
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Batasan Tanggung Jawab
           </h2>
           <p className="mt-2 text-slate-gray">
-            Kami berupaya menjaga layanan tetap berjalan, namun tidak menjamin layanan
-            selalu bebas gangguan. Kami tidak bertanggung jawab atas kerugian tidak
-            langsung akibat penggunaan layanan.
+            Sejauh diizinkan oleh ketentuan peraturan perundang-undangan yang berlaku,
+            {business.name} tidak bertanggung jawab atas kerugian tidak langsung,
+            insidental, atau konsekuensial yang timbul dari atau terkait penggunaan
+            layanan. Kami dapat melakukan pemeliharaan atau perubahan layanan dari waktu
+            ke waktu, termasuk penghentian sementara, tanpa pemberitahuan terlebih
+            dahulu apabila diperlukan.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">7. Kontak</h2>
+          <h2 className="mt-6 text-base font-semibold text-expo-black">Kontak</h2>
           <p className="mt-2 text-slate-gray">
-            Pertanyaan terkait Syarat & Ketentuan dapat dikirim ke{" "}
+            Pertanyaan terkait Syarat &amp; Ketentuan dapat dikirim ke{" "}
             <a className="text-link-cobalt underline" href={`mailto:${business.email}`}>
               {business.email}
             </a>
@@ -108,4 +110,3 @@ export default function TermsPage() {
     </main>
   );
 }
-

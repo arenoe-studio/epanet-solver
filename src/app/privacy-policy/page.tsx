@@ -17,53 +17,63 @@ export default function PrivacyPolicyPage() {
       <section className="mt-10 space-y-6 text-sm leading-relaxed">
         <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
           <h2 className="text-base font-semibold text-expo-black">
-            1. Data yang Kami Kumpulkan
-          </h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-gray">
-            <li>Informasi akun (nama, email) saat Anda masuk.</li>
-            <li>Data transaksi token (order id, nominal, status pembayaran).</li>
-            <li>
-              File <span className="font-mono text-near-black">.inp</span> yang Anda
-              unggah untuk diproses analisis.
-            </li>
-          </ul>
-        </div>
-
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            2. Cara Kami Menggunakan Data
-          </h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-gray">
-            <li>Memberikan layanan analisis dan hasil unduhan.</li>
-            <li>Memproses pembelian token dan rekonsiliasi pembayaran.</li>
-            <li>Keperluan keamanan, pencegahan penyalahgunaan, dan audit.</li>
-          </ul>
-        </div>
-
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            3. Berbagi Data dengan Pihak Ketiga
+            Ruang Lingkup
           </h2>
           <p className="mt-2 text-slate-gray">
-            Kami menggunakan pihak ketiga untuk kebutuhan autentikasi dan pembayaran
-            (misalnya Midtrans). Kami tidak menjual data pribadi Anda.
+            Kebijakan Privasi ini menjelaskan ketentuan pemrosesan data pribadi terkait
+            penggunaan layanan {business.name}. Dengan menggunakan layanan, Anda
+            menyatakan telah membaca dan memahami kebijakan ini.
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">
-            4. Penyimpanan dan Keamanan
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Data yang Diproses
           </h2>
           <p className="mt-2 text-slate-gray">
-            Kami menerapkan langkah keamanan yang wajar untuk melindungi data. Namun,
-            tidak ada metode transmisi atau penyimpanan yang 100% aman.
+            Dalam rangka penyediaan layanan, kami dapat memproses data berupa informasi
+            akun (misalnya nama dan alamat email), data transaksi token (misalnya
+            identitas pesanan, nominal, dan status pembayaran), serta file{" "}
+            <span className="font-mono text-near-black">.inp</span> yang Anda unggah
+            untuk keperluan analisis. Kami juga dapat memproses data teknis minimal
+            yang diperlukan untuk keamanan dan keandalan layanan (misalnya catatan
+            akses dan informasi perangkat).
           </p>
-        </div>
 
-        <div className="rounded-2xl border border-border-lavender bg-white p-6 shadow-whisper">
-          <h2 className="text-base font-semibold text-expo-black">5. Hubungi Kami</h2>
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Tujuan Pemrosesan
+          </h2>
           <p className="mt-2 text-slate-gray">
-            Jika Anda memiliki pertanyaan terkait privasi, hubungi{" "}
+            Data diproses untuk (i) menyediakan fitur analisis dan hasil unduhan,
+            (ii) memproses pembelian token serta rekonsiliasi pembayaran, dan (iii)
+            menjalankan pengamanan, pencegahan penyalahgunaan, serta audit internal
+            yang wajar.
+          </p>
+
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Pihak Ketiga
+          </h2>
+          <p className="mt-2 text-slate-gray">
+            Untuk kebutuhan tertentu, kami dapat menggunakan penyedia layanan pihak
+            ketiga (misalnya penyedia autentikasi dan pemrosesan pembayaran seperti
+            Midtrans). Kami tidak menjual data pribadi Anda. Akses pihak ketiga
+            dibatasi pada kebutuhan penyediaan layanan dan tunduk pada ketentuan
+            masing-masing penyedia.
+          </p>
+
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Penyimpanan dan Keamanan
+          </h2>
+          <p className="mt-2 text-slate-gray">
+            Kami menerapkan langkah-langkah keamanan yang wajar dan proporsional untuk
+            melindungi data dari akses, pengungkapan, perubahan, atau penghapusan yang
+            tidak berwenang. Meskipun demikian, tidak ada metode transmisi atau
+            penyimpanan yang dapat dijamin 100% aman.
+          </p>
+
+          <h2 className="mt-6 text-base font-semibold text-expo-black">
+            Hubungi Kami
+          </h2>
+          <p className="mt-2 text-slate-gray">
+            Pertanyaan terkait kebijakan ini dapat disampaikan melalui{" "}
             <a className="text-link-cobalt underline" href={`mailto:${business.email}`}>
               {business.email}
             </a>
@@ -78,4 +88,3 @@ export default function PrivacyPolicyPage() {
     </main>
   );
 }
-

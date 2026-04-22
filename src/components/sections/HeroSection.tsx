@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 
 type HeroSectionProps = {
@@ -39,12 +41,12 @@ export function HeroSection({ isLoggedIn, onPrimaryAction }: HeroSectionProps) {
             <Button size="lg" onClick={onPrimaryAction}>
               {isLoggedIn ? "Mulai Upload" : "Coba Gratis — 5 Token"}
             </Button>
-            <a
-              href="#how-it-works"
+            <Link
+              href="/docs"
               className="inline-flex h-11 items-center gap-1.5 rounded-full border border-border-lavender bg-white px-6 text-sm font-semibold text-near-black shadow-whisper transition-colors hover:bg-cloud-gray active:scale-[0.98]"
             >
-              Lihat Cara Kerja ↓
-            </a>
+              Lihat Dokumentasi →
+            </Link>
           </div>
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
