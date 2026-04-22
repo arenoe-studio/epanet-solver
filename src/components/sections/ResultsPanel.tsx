@@ -55,6 +55,12 @@ function fx(v: unknown, d = 2): string {
   return typeof n === "number" ? n.toFixed(d) : "—";
 }
 
+function requiredNumberCell(value: unknown, decimals: number, errorCode: string) {
+  const n = toFiniteNumber(value);
+  if (typeof n === "number") return n.toFixed(decimals);
+  return <span className="font-mono text-[11px] text-red-600">{errorCode}</span>;
+}
+
 function downloadBase64File(base64: string, filename: string) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   const blob = new Blob([bytes], { type: "text/plain" });
@@ -122,7 +128,7 @@ export function ResultsPanel({
   isFixingPressure,
   tokenBalance
 }: ResultsPanelProps) {
-  type ResultsCondition = "awal" | "diameter" | "tekanan";
+  type ResultsCondition = "awal" | "akhir";
   type ResultsTab = "nodes" | "links" | "materials";
 
   const [materialAccordionOpen, setMaterialAccordionOpen] = useState(false);
@@ -140,14 +146,7 @@ export function ResultsPanel({
     (result.summary as any)?.pressureOptimizationAvailable ?? filesFinal
   );
 
-  const defaultCondition: ResultsCondition = (() => {
-    const action = (result.summary as any)?.action;
-    if (filesFinal) return "tekanan";
-    if (pressureOptimizationAvailable && action === "fix_pressure") return "tekanan";
-    return "diameter";
-  })();
-
-  const [condition, setCondition] = useState<ResultsCondition>(defaultCondition);
+  const [condition, setCondition] = useState<ResultsCondition>("akhir");
   const [activeTab, setActiveTab] = useState<ResultsTab>("nodes");
 
   function costBadge(tokenCost: number) {
@@ -290,85 +289,45 @@ export function ResultsPanel({
   }, [filesFinal, prvNeeded, prvRecs, nodes]);
 
   function nodePressureM(n: (typeof nodes)[number]): number | null {
-    if (condition === "awal") return (n as any).pressureAwalM ?? n.pressureBefore ?? null;
-    if (condition === "diameter") {
-      return (
-        (n as any).pressureDiameterM ??
-        (filesFinal ? null : n.pressureAfter ?? null)
-      );
-    }
-    if (condition === "tekanan") return (n as any).pressureTekananM ?? n.pressureAfter ?? null;
-    return null;
+    if (condition === "awal") return (n as any).pressureAwalM ?? null;
+    return filesFinal ? ((n as any).pressureTekananM ?? null) : ((n as any).pressureDiameterM ?? null);
   }
 
   function nodeHeadM(n: (typeof nodes)[number]): number | null {
-    const head =
-      condition === "awal"
-        ? ((n as any).headAwalM ?? null)
-        : condition === "diameter"
-          ? ((n as any).headDiameterM ?? null)
-          : condition === "tekanan"
-            ? ((n as any).headTekananM ?? null)
-            : null;
-
-    const headN = toFiniteNumber(head);
-    if (typeof headN === "number") return headN;
-
-    const elevation = toFiniteNumber((n as any).elevation);
-    const pressure = toFiniteNumber(nodePressureM(n));
-    if (typeof elevation === "number" && typeof pressure === "number") return elevation + pressure;
-
-    return null;
+    if (condition === "awal") return (n as any).headAwalM ?? null;
+    return filesFinal ? ((n as any).headTekananM ?? null) : ((n as any).headDiameterM ?? null);
   }
 
   function pipeDiameterMm(p: (typeof pipes)[number]): number | null {
-    if (condition === "awal") return (p as any).diameterAwalMm ?? p.diameterBefore ?? null;
-    if (condition === "diameter") {
-      return (
-        (p as any).diameterDiameterMm ??
-        (filesFinal ? null : p.diameterAfter ?? null)
-      );
-    }
-    if (condition === "tekanan") return (p as any).diameterTekananMm ?? p.diameterAfter ?? null;
-    return null;
+    if (condition === "awal") return (p as any).diameterAwalMm ?? null;
+    return filesFinal
+      ? ((p as any).diameterTekananMm ?? null)
+      : ((p as any).diameterDiameterMm ?? null);
   }
 
   function pipeFlowDisplayLps(p: (typeof pipes)[number]): number | null {
-    const raw =
-      condition === "awal"
-        ? ((p as any).flowAwalLpsAbs ?? (p as any).flowAwalLps)
-        : condition === "diameter"
-          ? ((p as any).flowDiameterLpsAbs ?? (p as any).flowDiameterLps)
-          : condition === "tekanan"
-            ? ((p as any).flowTekananLpsAbs ?? (p as any).flowTekananLps)
-            : null;
+    const raw = (() => {
+      if (condition === "awal") return (p as any).flowAwalLpsAbs ?? (p as any).flowAwalLps;
+      if (filesFinal) return (p as any).flowTekananLpsAbs ?? (p as any).flowTekananLps;
+      return (p as any).flowDiameterLpsAbs ?? (p as any).flowDiameterLps;
+    })();
 
     if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
     return Math.abs(raw);
   }
 
   function pipeVelocityMps(p: (typeof pipes)[number]): number | null {
-    if (condition === "awal") return (p as any).velocityAwalMps ?? p.velocityBefore ?? null;
-    if (condition === "diameter") {
-      return (
-        (p as any).velocityDiameterMps ??
-        (filesFinal ? null : p.velocityAfter ?? null)
-      );
-    }
-    if (condition === "tekanan") return (p as any).velocityTekananMps ?? p.velocityAfter ?? null;
-    return null;
+    if (condition === "awal") return (p as any).velocityAwalMps ?? null;
+    return filesFinal
+      ? ((p as any).velocityTekananMps ?? null)
+      : ((p as any).velocityDiameterMps ?? null);
   }
 
   function pipeUnitHeadlossMkm(p: (typeof pipes)[number]): number | null {
-    if (condition === "awal") return (p as any).unitHeadlossAwalMkm ?? p.headlossBefore ?? null;
-    if (condition === "diameter") {
-      return (
-        (p as any).unitHeadlossDiameterMkm ??
-        (filesFinal ? null : p.headlossAfter ?? null)
-      );
-    }
-    if (condition === "tekanan") return (p as any).unitHeadlossTekananMkm ?? p.headlossAfter ?? null;
-    return null;
+    if (condition === "awal") return (p as any).unitHeadlossAwalMkm ?? null;
+    return filesFinal
+      ? ((p as any).unitHeadlossTekananMkm ?? null)
+      : ((p as any).unitHeadlossDiameterMkm ?? null);
   }
 
   return (
@@ -561,7 +520,7 @@ export function ResultsPanel({
                 </div>
                 {!pressureOptimizationAvailable && (
                   <div className="whitespace-nowrap text-xs text-slate-gray">
-                    Jalankan Fix Pressure untuk melihat kondisi ini.
+                    Kondisi akhir saat ini = hasil optimasi diameter (v1). Jalankan Fix Pressure untuk hasil final.
                   </div>
                 )}
               </div>
@@ -570,18 +529,8 @@ export function ResultsPanel({
                 <PillButton active={condition === "awal"} onClick={() => setCondition("awal")}>
                   Kondisi Awal
                 </PillButton>
-                <PillButton
-                  active={condition === "diameter"}
-                  onClick={() => setCondition("diameter")}
-                >
-                  Optimasi Diameter
-                </PillButton>
-                <PillButton
-                  active={condition === "tekanan"}
-                  disabled={!pressureOptimizationAvailable}
-                  onClick={() => setCondition("tekanan")}
-                >
-                  Optimasi Tekanan
+                <PillButton active={condition === "akhir"} onClick={() => setCondition("akhir")}>
+                  Kondisi Akhir
                 </PillButton>
               </div>
             </div>
@@ -611,13 +560,17 @@ export function ResultsPanel({
                         <TableCell className="whitespace-nowrap font-medium text-expo-black">
                           {n.id}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(n.elevation, 2)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx((n as any).baseDemandLps ?? (n as any).baseDemand, 2)}
+                          {requiredNumberCell(n.elevation, 2, "E_NODE_ELEVATION_MISSING")}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(nodeHeadM(n), 2)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(nodePressureM(n), 2)}
+                          {requiredNumberCell((n as any).baseDemandLps, 2, "E_NODE_BASE_DEMAND_MISSING")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {requiredNumberCell(nodeHeadM(n), 2, "E_NODE_HEAD_MISSING")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {requiredNumberCell(nodePressureM(n), 2, "E_NODE_PRESSURE_MISSING")}
                         </TableCell>
                       </TableRow>
                     ))
@@ -654,19 +607,23 @@ export function ResultsPanel({
                         <TableCell className="whitespace-nowrap font-medium text-expo-black">
                           {p.id}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx(p.length, 1)}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeDiameterMm(p), 1)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">{fx((p as any).roughnessC ?? (p as any).roughness, 0)}</TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {fx(pipeFlowDisplayLps(p), 3)}
+                          {requiredNumberCell(p.length, 1, "E_PIPE_LENGTH_MISSING")}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeVelocityMps(p), 3)}
+                          {requiredNumberCell(pipeDiameterMm(p), 1, "E_PIPE_DIAMETER_MISSING")}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {fx(pipeUnitHeadlossMkm(p), 2)}
+                          {requiredNumberCell((p as any).roughnessC, 0, "E_PIPE_ROUGHNESS_MISSING")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {requiredNumberCell(pipeFlowDisplayLps(p), 3, "E_PIPE_FLOW_MISSING")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {requiredNumberCell(pipeVelocityMps(p), 3, "E_PIPE_VELOCITY_MISSING")}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {requiredNumberCell(pipeUnitHeadlossMkm(p), 2, "E_PIPE_UNIT_HEADLOSS_MISSING")}
                         </TableCell>
                       </TableRow>
                     ))
