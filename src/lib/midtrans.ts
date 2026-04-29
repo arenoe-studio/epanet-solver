@@ -10,9 +10,12 @@ export function getSnap() {
   if (cachedSnap) return cachedSnap;
 
   const serverKey = process.env.MIDTRANS_SERVER_KEY;
-  const clientKey = process.env.MIDTRANS_CLIENT_KEY;
+  const clientKey =
+    process.env.MIDTRANS_CLIENT_KEY ?? process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY;
   if (!serverKey || !clientKey) {
-    throw new Error("Missing Midtrans env vars: MIDTRANS_SERVER_KEY / MIDTRANS_CLIENT_KEY");
+    throw new Error(
+      "Missing Midtrans env vars: MIDTRANS_SERVER_KEY + (MIDTRANS_CLIENT_KEY or NEXT_PUBLIC_MIDTRANS_CLIENT_KEY)"
+    );
   }
 
   cachedSnap = new MidtransClient.Snap({

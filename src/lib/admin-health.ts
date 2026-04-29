@@ -84,7 +84,6 @@ export function checkConfigSanity(): HealthCheckResult[] {
   const paymentProvider = getPaymentProvider();
   const midtransOk =
     process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY &&
-    process.env.MIDTRANS_CLIENT_KEY &&
     process.env.MIDTRANS_SERVER_KEY;
 
   const qrisOk =
