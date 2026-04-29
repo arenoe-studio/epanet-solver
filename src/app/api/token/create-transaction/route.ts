@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { randomInt } from "crypto";
 import { z } from "zod";
 
+import { eq } from "drizzle-orm";
+
 import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
-import { transactions } from "@/lib/db/schema";
+import { transactions, users } from "@/lib/db/schema";
 import { getSnap } from "@/lib/midtrans";
 import { getPaymentProvider, getQrisStaticConfig } from "@/lib/payment";
 import { rateLimitCreateTransaction } from "@/lib/ratelimit";
@@ -38,6 +40,12 @@ export async function POST(req: Request) {
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!session.user?.email?.trim()) {
+    return NextResponse.json(
+      { error: "Email akun belum tersedia. Silakan logout lalu login ulang." },
+      { status: 401 }
+    );
+  }
 
   const rl = await rateLimitCreateTransaction(`user:${userId}`);
   if (!rl.ok) {
@@ -53,6 +61,20 @@ export async function POST(req: Request) {
   const orderId = `EPANET-${userId.slice(0, 8)}-${Date.now()}`;
 
   const db = getDb();
+  const userRows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (userRows.length === 0) {
+    await db.insert(users).values({
+      id: userId,
+      email: session.user.email.trim(),
+      name: session.user?.name?.trim() ? session.user.name.trim() : null
+    });
+  }
+
   const provider = getPaymentProvider();
 
   if (provider === "midtrans") {
