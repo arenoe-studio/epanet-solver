@@ -18,7 +18,7 @@ function getPasswordChecks(password: string) {
   };
 }
 
-export function ResetPasswordClient(props: { email: string; token: string }) {
+export function ResetPasswordClient(props: { token: string }) {
   const router = useRouter();
   const { status } = useSession();
   const { push } = useToast();
@@ -39,7 +39,7 @@ export function ResetPasswordClient(props: { email: string; token: string }) {
 
   async function onSubmit() {
     if (loading) return;
-    if (!props.email || !props.token) {
+    if (!props.token) {
       push({
         title: "Link tidak valid",
         description: "Token reset tidak ditemukan.",
@@ -72,7 +72,6 @@ export function ResetPasswordClient(props: { email: string; token: string }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          email: props.email.trim().toLowerCase(),
           token: props.token,
           password,
           confirmPassword,
@@ -88,9 +87,7 @@ export function ResetPasswordClient(props: { email: string; token: string }) {
         setLoading(false);
         return;
       }
-      router.push(
-        `/login?reset=1&email=${encodeURIComponent(props.email.trim().toLowerCase())}`
-      );
+      router.push("/login?reset=1");
     } catch {
       push({ title: "Gagal reset password", variant: "error" });
     } finally {
@@ -113,7 +110,7 @@ export function ResetPasswordClient(props: { email: string; token: string }) {
           Reset Password
         </h1>
         <p className="mt-2 text-sm text-slate-gray">
-          Buat password baru untuk akun <span className="font-semibold">{props.email || "-"}</span>.
+          Buat password baru untuk akun Anda.
         </p>
 
         <div className="mt-6 space-y-4">
@@ -202,4 +199,3 @@ export function ResetPasswordClient(props: { email: string; token: string }) {
     </main>
   );
 }
-

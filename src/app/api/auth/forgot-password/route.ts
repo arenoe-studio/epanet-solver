@@ -77,9 +77,7 @@ export async function POST(request: Request) {
 
   if (getResendClient()) {
     try {
-      const resetUrl = `${origin}/reset-password?email=${encodeURIComponent(
-        email
-      )}&token=${encodeURIComponent(issued.token)}`;
+      const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(issued.token)}`;
       await sendResetPasswordLinkEmail({ to: email, resetUrl });
     } catch {
       // Best-effort: jangan bocorkan detail ke client.
@@ -88,4 +86,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ ok: true });
 }
-

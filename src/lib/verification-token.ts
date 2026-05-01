@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, like } from "drizzle-orm";
 
 import type { DbClient } from "@/lib/db";
 import { verificationTokens } from "@/lib/db/schema";
@@ -94,3 +94,28 @@ export async function hasUnexpiredVerificationToken(opts: {
   return !!rows[0]?.identifier;
 }
 
+export async function getEmailFromResetToken(opts: {
+  db: DbClient;
+  token: string;
+  secret: string;
+}): Promise<string | null> {
+  const now = new Date();
+  const tokenHash = hashToken(opts.token, opts.secret);
+
+  const rows = await opts.db
+    .select({ identifier: verificationTokens.identifier })
+    .from(verificationTokens)
+    .where(
+      and(
+        like(verificationTokens.identifier, "reset_password:%"),
+        eq(verificationTokens.token, tokenHash),
+        gt(verificationTokens.expires, now)
+      )
+    )
+    .limit(1);
+
+  const identifier = rows[0]?.identifier;
+  if (!identifier?.startsWith("reset_password:")) return null;
+
+  return identifier.slice("reset_password:".length);
+}

@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 
-import { consumeVerificationToken } from "@/lib/verification-token";
+import {
+  consumeVerificationToken,
+  getEmailFromResetToken
+} from "@/lib/verification-token";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { getServerEnv } from "@/lib/env";
@@ -30,7 +33,6 @@ const passwordSchema = z
 
 const bodySchema = z
   .object({
-    email: z.string().trim().email(),
     token: z.string().trim().min(10),
     password: passwordSchema,
     confirmPassword: z.string().min(1).optional()
@@ -68,8 +70,19 @@ export async function POST(request: Request) {
     );
   }
 
-  const email = parsed.data.email.toLowerCase();
   const db = getDb();
+  const email = await getEmailFromResetToken({
+    db,
+    token: parsed.data.token,
+    secret: env.NEXTAUTH_SECRET
+  });
+
+  if (!email) {
+    return NextResponse.json(
+      { error: "Link tidak valid atau sudah kadaluarsa." },
+      { status: 400 }
+    );
+  }
 
   const identifier = `reset_password:${email}`;
   const tokenRes = await consumeVerificationToken({
