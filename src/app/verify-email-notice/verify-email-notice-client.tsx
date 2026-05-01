@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/providers/ToastProvider";
 import type { AuthActionResponse } from "@/types/auth";
@@ -22,6 +22,7 @@ export function VerifyEmailNoticeClient(props: {
   reason: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { status } = useSession();
   const { push } = useToast();
 
@@ -32,11 +33,22 @@ export function VerifyEmailNoticeClient(props: {
     if (status === "authenticated") router.replace("/dashboard");
   }, [router, status]);
 
-  const [effectiveEmail, setEffectiveEmail] = useState(
-    () => props.email.trim().toLowerCase()
-  );
+  const [effectiveEmail, setEffectiveEmail] = useState(() => {
+    const fromParams = (searchParams.get("email") ?? "").trim().toLowerCase();
+    if (fromParams) return fromParams;
+    return props.email.trim().toLowerCase();
+  });
 
   useEffect(() => {
+    const fromParams = (searchParams.get("email") ?? "").trim().toLowerCase();
+    if (fromParams) {
+      setEffectiveEmail(fromParams);
+      try {
+        localStorage.setItem(getLastEmailStorageKey(), fromParams);
+      } catch {}
+      return;
+    }
+
     const fromProps = props.email.trim().toLowerCase();
     if (fromProps) {
       setEffectiveEmail(fromProps);
@@ -50,7 +62,7 @@ export function VerifyEmailNoticeClient(props: {
       const cleaned = last.trim().toLowerCase();
       if (cleaned) setEffectiveEmail(cleaned);
     } catch {}
-  }, [props.email]);
+  }, [props.email, searchParams]);
 
   const email = effectiveEmail;
   const storageKey = useMemo(() => (email ? getCooldownStorageKey(email) : null), [email]);

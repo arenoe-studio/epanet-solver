@@ -118,7 +118,7 @@ const analyses = pgTable("analyses", {
   pipesCount: integer("pipes_count"),
   issuesFound: integer("issues_found"),
   issuesFixed: integer("issues_fixed"),
-  tokensUsed: integer("tokens_used").default(6),
+  tokensUsed: integer("tokens_used").default(5),
   createdAt: timestamp("created_at", { mode: "date" }).defaultNow()
 });
 

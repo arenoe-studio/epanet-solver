@@ -91,6 +91,10 @@ export function RegisterClient(props: { initialEmail: string }) {
       });
       const json = (await res.json()) as AuthActionResponse;
       if (!res.ok) {
+        if (res.status === 409) {
+          router.push(`/login?email=${encodeURIComponent(trimmedEmail)}`);
+          return;
+        }
         push({
           title: "Gagal daftar",
           description: json?.error ?? "Terjadi kesalahan.",

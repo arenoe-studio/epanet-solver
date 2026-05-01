@@ -8,7 +8,7 @@ EPANET Network Analyzer & Optimizer — a Python engine that loads a water distr
 
 The project has two deployment targets:
 - **CLI** (`scripts/`) — local Python tool
-- **Web app** (`src/` + `api/`) — Next.js 14 frontend + Vercel serverless Python handler
+- **Web app** (`src/` + `api/`) — Next.js 16 frontend + Vercel serverless Python handler
 
 ## Running the Tool
 
@@ -74,7 +74,9 @@ scripts/
     network_io.py          # Load/sanitize .inp → WaterNetworkModel; export .inp
     simulation.py          # run_simulation() + evaluate_network()
     diameter.py            # Analytical Window Method; standard diameter catalog
-    optimizer.py           # Iterative optimization loop
+    optimizer.py           # Iterative optimization loop (priority passes)
+    materials.py           # Material recommendation per pipe (PVC/HDPE/GIP/Steel)
+    prv.py                 # Pressure Reducing Valve placement & multi-stage tuning
     reporter.py            # Markdown report generation
 
 api/
@@ -85,14 +87,30 @@ api/
 src/
   app/
     api/
-      analyze/             # Calls Python API (Phase 3)
-      analyses/            # Analysis history
-      auth/                # NextAuth
-      token/               # Token balance & transactions
+      analyze/             # POST: upload .inp → Python API → return jobId
+      fix-pressure/        # POST: multi-stage PRV fixing (action=fix_pressure)
+      simulations/[jobId]/ # GET: poll job status; /result fetches full payload; /files/[name] downloads
+      analyses/            # CRUD for analysis records; /[id]/export → PDF/INP/XLSX
+      auth/                # NextAuth + OTP routes
+      token/               # Balance, create-transaction, confirm-qris, webhook
       transactions/        # Transaction history
-    page.tsx
+      contact/             # Contact form
+    dashboard/             # User analysis history
+    admin/                 # Admin panel (users, payments, health)
   components/              # UI components (layout, modals, sections, ui)
-  lib/db/                  # Drizzle ORM schemas
+  lib/
+    db/
+      schema.drizzle.js    # Drizzle ORM table definitions (all 11 tables)
+      index.ts             # Neon HTTP connection
+    auth.ts                # NextAuth config + CredentialsProvider
+    auth-otp.ts            # OTP generation/consumption
+    python-api.ts          # buildPythonApiUrl() helper
+    ratelimit.ts           # Upstash Redis rate limiters (4 limiters)
+    token-balance.ts       # Token debit/credit logic
+    token-constants.ts     # Token cost per action
+    payment.ts             # Payment provider abstraction
+    resend.ts              # Email sending (OTP, verification, notifications)
+    analysis-snapshots.ts  # Store/retrieve large result payloads as JSONB
 ```
 
 **Important:** `api/epanet/` is a manually kept copy of `scripts/epanet/`. When changing core engine logic, update both locations.
@@ -102,11 +120,16 @@ src/
 1. **Load** (`network_io.load_network`) — reads `.inp` via WNTR; auto-sanitizes corrupt `[VERTICES]` sections if the first load fails
 2. **Simulate** (`simulation.run_simulation`) — runs WNTR steady-state; computes pressure, velocity, flow, headloss-per-km
 3. **Evaluate** (`simulation.evaluate_network`) — checks every node (P-LOW/P-HIGH) and pipe (V-LOW/V-HIGH/HL-HIGH) against Permen PU thresholds; returns `violations` list and per-element status dicts
-4. **Optimize** (`optimizer.optimize_diameters`) — iterative loop (max 50 local / 15 serverless):
-   - Per pipe: calls `diameter.analytical_optimal_diameter(flow)` → FEASIBLE / INFEASIBLE / CONFLICT
-   - Per P-LOW node: bumps upstream pipe diameter one step up
+4. **Optimize** (`optimizer.optimize_diameters`) — iterative loop (max 50 local / 15 serverless), priority passes per iteration in this order:
+   1. `HL-SMALL` — pipes with high headloss in violation zones (composite: both V-HIGH + HL-HIGH)
+   2. `HL-HIGH` — headloss > 10 m/km → increase diameter
+   3. `V-HIGH` — velocity > 2.5 m/s → increase diameter
+   4. `V-LOW` — velocity < 0.3 m/s → decrease diameter
    - Loop exits on CONVERGED / STUCK / STAGNANT
-5. **Export** (`network_io.export_optimized_inp` + `reporter.export_markdown_report`)
+5. **Materials** (`materials.py`) — per-pipe material recommendation (pressure + diameter → PVC/HDPE/GIP/Steel + Hazen-Williams C); updates roughness in model. **Note:** GIP/Steel > 114 mm unavailable in Indonesia; auto-downgrade to HDPE PN-16.
+6. **Export** (`network_io.export_optimized_inp` + `reporter.export_markdown_report`)
+
+**PRV Fixing** is a separate action (`fix-pressure`): multi-stage loop (up to 4 stages) — insert PRVs → re-optimize diameters → fine-tune PRV settings → repeat. Handles non-linear interaction between PRVs and diameter changes.
 
 ### Analytical Window Method (`diameter.py`)
 
@@ -153,17 +176,38 @@ Accepts multipart file upload, runs the full analysis pipeline, and returns base
 
 HTTP 422 = `UserError` (invalid file, no token refund). HTTP 500 = system error (refund=true).
 
-## Database Schema (`src/lib/db/schema.ts`)
+### Next.js → Python Job Flow
+
+1. `POST /api/analyze` — deducts tokens, forwards file to Python `/v1/simulations`, returns `jobId`
+2. Client polls `GET /api/simulations/[jobId]/result?analysisId=...` — returns 409 until ready
+3. On 200: stores result in `analysisSnapshots` JSONB, finalizes analysis record
+4. `GET /api/simulations/[jobId]/files/[name]` — fetches .inp or .md from Python, base64-decodes, streams to client
+
+### Token Costs (`src/lib/token-constants.ts`)
+
+| Action | Cost |
+|---|---|
+| Analyze | 5 tokens |
+| Fix Pressure (PRV) | 3 tokens |
+| Download INP | 2 tokens |
+| Download XLSX | 1 token |
+
+Users receive free tokens on signup (`INITIAL_FREE_TOKENS`). Emails in `ADMIN_EMAILS` bypass all token checks and rate limits.
+
+## Database Schema (`src/lib/db/schema.drizzle.js`)
 
 App-specific tables (beyond standard NextAuth adapter tables):
 
 | Table | Key columns | Notes |
 |---|---|---|
 | `token_balances` | `balance`, `total_bought`, `total_used` | One row per user |
-| `analyses` | `status`, `issues_found`, `issues_fixed`, `tokens_used` | `tokens_used` defaults to **6** per analysis |
-| `transactions` | `order_id`, `package`, `tokens`, `amount`, `status`, `payment_method` | `status`: pending / paid / failed |
+| `analyses` | `status`, `issues_found`, `issues_fixed`, `tokens_used`, `kind`, `parent_analysis_id` | `tokens_used` defaults to **5**; `kind` = "analyze" or "fix_pressure" |
+| `analysis_snapshots` | `analysis_id`, `payload` (JSONB), `expires_at` | Large result payloads; indexed on expiry |
+| `transactions` | `order_id`, `package`, `tokens`, `amount`, `status`, `payment_method`, `snap_token` | `status`: pending / paid / failed |
+| `contact_messages` | `name`, `email`, `message`, `status` | Contact form submissions |
+| `admin_token_events` | `user_id`, `delta`, `reason`, `admin_email` | Audit log for manual token adjustments |
 
-Migrations are generated to `src/lib/db/migrations/`. `drizzle.config.js` manually loads `.env.local` because Drizzle Kit does not auto-load Next.js env files — if `DATABASE_URL` is missing, the Drizzle commands will throw immediately with a clear message. (The config points to `src/lib/db/schema.drizzle.js` to avoid esbuild binary spawning on Windows.)
+Migrations are generated to `src/lib/db/migrations/`. `drizzle.config.js` manually loads `.env.local` because Drizzle Kit does not auto-load Next.js env files. (The config points to `src/lib/db/schema.drizzle.js` to avoid esbuild binary spawning on Windows.)
 
 ## Environment Variables
 
@@ -173,7 +217,9 @@ Copy `.env.example` to `.env.local`. Variables are gated by phase:
 |---|---|---|
 | `DATABASE_URL` | 2+ | PostgreSQL (Neon) connection string |
 | `NEXTAUTH_URL`, `NEXTAUTH_SECRET` | 2+ | NextAuth session |
+| `ADMIN_EMAILS` | 2+ | Comma-separated; bypass tokens + rate limits + unlock debug endpoints |
 | `RESEND_API_KEY` | 2+ | Email (OTP + transactional) |
+| `AUTH_EMAIL_FROM` | 2+ | From address (default: `onboarding@resend.dev`) |
 | `AUTH_REQUIRE_LOGIN_OTP` | 2+ | Require OTP on login |
 | `AUTH_OTP_TTL_MINUTES` | 2+ | OTP expiry (minutes) |
 | `PYTHON_API_URL` | 3 (local dev) | Points to `scripts/dev_server.py` |
@@ -181,5 +227,10 @@ Copy `.env.example` to `.env.local`. Variables are gated by phase:
 | `EPANET_SOLVER_TIME_BUDGET_S` | any | Override optimizer time budget seconds (default 20) |
 | `EPANET_SOLVER_SIMULATOR` | any | `auto` / `epanet` / `wntr` (force simulator selection) |
 | `EPANET_SOLVER_REQUIRE_EPANET` | any | If `1`, error when EPANET toolkit is unavailable |
-| `MIDTRANS_*` | 4+ | Payment gateway |
-| `UPSTASH_REDIS_*` | 6+ | Rate limiting |
+| `PAYMENT_PROVIDER` | 4+ | `midtrans` or `qris_static` (default) |
+| `MIDTRANS_SERVER_KEY`, `MIDTRANS_CLIENT_KEY`, `MIDTRANS_IS_PRODUCTION` | 4+ | Midtrans payment gateway |
+| `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | 4+ | Client-side Snap.js key |
+| `NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL` | 4+ | Static QR code asset URL |
+| `NEXT_PUBLIC_QRIS_STATIC_LABEL` | 4+ | Display label for QRIS |
+| `PAYMENT_ADMIN_EMAIL` | 4+ | Admin email for payment notifications |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | 6+ | Rate limiting |
