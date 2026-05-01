@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { VerifyEmailNoticeClient } from "./verify-email-notice-client";
 
 export default function VerifyEmailNoticePage(props: {
@@ -6,6 +7,9 @@ export default function VerifyEmailNoticePage(props: {
   const email = props.searchParams?.email ?? "";
   const sent = props.searchParams?.sent === "1";
   const reason = props.searchParams?.reason ?? "";
-  return <VerifyEmailNoticeClient email={email} sent={sent} reason={reason} />;
+  return (
+    <Suspense fallback={null}>
+      <VerifyEmailNoticeClient email={email} sent={sent} reason={reason} />
+    </Suspense>
+  );
 }
-
