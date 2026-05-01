@@ -70,12 +70,17 @@ export async function POST(request: Request) {
     );
   }
 
+  console.log("[RESET DEBUG] token received:", parsed.data.token);
+  console.log("[RESET DEBUG] token length:", parsed.data.token.length);
+
   const db = getDb();
   const email = await getEmailFromResetToken({
     db,
     token: parsed.data.token,
     secret: env.NEXTAUTH_SECRET
   });
+
+  console.log("[RESET DEBUG] email found:", email);
 
   if (!email) {
     return NextResponse.json(

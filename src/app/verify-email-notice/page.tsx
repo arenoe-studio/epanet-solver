@@ -1,12 +1,13 @@
 import { Suspense } from "react";
 import { VerifyEmailNoticeClient } from "./verify-email-notice-client";
 
-export default function VerifyEmailNoticePage(props: {
-  searchParams?: { email?: string; sent?: string; reason?: string };
+export default async function VerifyEmailNoticePage(props: {
+  searchParams?: Promise<{ email?: string; sent?: string; reason?: string }>;
 }) {
-  const email = props.searchParams?.email ?? "";
-  const sent = props.searchParams?.sent === "1";
-  const reason = props.searchParams?.reason ?? "";
+  const params = await props.searchParams;
+  const email = params?.email ?? "";
+  const sent = params?.sent === "1";
+  const reason = params?.reason ?? "";
   return (
     <Suspense fallback={null}>
       <VerifyEmailNoticeClient email={email} sent={sent} reason={reason} />

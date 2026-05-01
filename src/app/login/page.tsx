@@ -1,18 +1,19 @@
 import { LoginClient } from "./LoginClient";
 
-export default function LoginPage(props: {
-  searchParams?: {
+export default async function LoginPage(props: {
+  searchParams?: Promise<{
     callbackUrl?: string;
     verified?: string;
     reset?: string;
     email?: string;
-  };
+  }>;
 }) {
-  const raw = props.searchParams?.callbackUrl;
+  const params = await props.searchParams;
+  const raw = params?.callbackUrl;
   const callbackUrl = raw && raw.startsWith("/") ? raw : "/dashboard";
-  const initialEmail = props.searchParams?.email ?? "";
-  const verified = props.searchParams?.verified === "1";
-  const reset = props.searchParams?.reset === "1";
+  const initialEmail = params?.email ?? "";
+  const verified = params?.verified === "1";
+  const reset = params?.reset === "1";
   return (
     <LoginClient
       callbackUrl={callbackUrl}

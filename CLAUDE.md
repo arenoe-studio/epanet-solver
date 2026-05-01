@@ -234,3 +234,24 @@ Copy `.env.example` to `.env.local`. Variables are gated by phase:
 | `NEXT_PUBLIC_QRIS_STATIC_LABEL` | 4+ | Display label for QRIS |
 | `PAYMENT_ADMIN_EMAIL` | 4+ | Admin email for payment notifications |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | 6+ | Rate limiting |
+
+## Database Query Rules
+
+When writing ANY Drizzle ORM query:
+1. Always read `src/lib/db/schema.drizzle.js` first
+2. Use the EXACT variable name as exported from schema — never guess
+3. When creating a new function that queries DB, explicitly state which
+   table variable you are using and confirm it matches schema
+4. Never assume plural/singular form of table names
+
+## Database & Query Rules (Mandatory)
+
+Before writing ANY Drizzle ORM query in any file:
+1. Always read `src/lib/db/schema.drizzle.js` first
+2. Confirm the EXACT exported variable name for every table used
+3. Never assume plural/singular — e.g. `verificationToken` vs
+   `verificationTokens` must be verified from schema, not guessed
+4. When creating a new DB function, add temporary console.log for
+   input and output — remove only after confirmed working in production
+5. When a new function mirrors an existing one, copy its exact table
+   references — do not rewrite from scratch
