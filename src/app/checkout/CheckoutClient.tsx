@@ -7,15 +7,11 @@ import useSWR from "swr";
 
 import { TokenPackageCard } from "@/components/checkout/TokenPackageCard";
 import { InvoiceModal } from "@/components/modals/InvoiceModal";
-import {
-  QrisStaticPaymentModal,
-  type QrisStaticPaymentData
-} from "@/components/modals/QrisStaticPaymentModal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/components/providers/ToastProvider";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
-import { formatIdr, normalizeQrisQrImageUrl } from "@/lib/utils";
+import { formatIdr } from "@/lib/utils";
 import {
   TOKEN_PACKAGES_LIST,
   getTokenPackage,
@@ -83,10 +79,6 @@ function canReuseSnapToken(tx: TransactionRow) {
   return Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now();
 }
 
-function isQrisStatic(tx: TransactionRow) {
-  return (tx.paymentMethod ?? "").toLowerCase().startsWith("qris");
-}
-
 export function CheckoutClient() {
   const { data: session, status: sessionStatus } = useSession();
   const isAuthenticated = sessionStatus === "authenticated";
@@ -99,7 +91,6 @@ export function CheckoutClient() {
   const [busyPackage, setBusyPackage] = useState<TokenPackageKey | null>(null);
   const [expandedHistory, setExpandedHistory] = useState(false);
   const [invoiceTransaction, setInvoiceTransaction] = useState<TransactionRow | null>(null);
-  const [qrisPayment, setQrisPayment] = useState<QrisStaticPaymentData | null>(null);
 
   const selectedFromQuery = useMemo(() => {
     return resolveTokenPackageKey(searchParams.get("package"));
@@ -196,24 +187,12 @@ export function CheckoutClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ package: pkgKey })
       });
-       const json = (await res.json()) as
-         | {
-             provider?: "midtrans";
-             snapToken?: string;
-             orderId?: string;
-             error?: string;
-           }
-         | {
-             provider?: "qris_static";
-             orderId?: string;
-             qris?: { qrImageUrl: string; label: string };
-             baseAmount?: number;
-             uniqueCode?: number;
-             amount?: number;
-             tokens?: number;
-             package?: string;
-             error?: string;
-           };
+      const json = (await res.json()) as {
+        provider?: "midtrans";
+        snapToken?: string;
+        orderId?: string;
+        error?: string;
+      };
 
       if (!res.ok || !json || (json as { error?: string }).error) {
         push({
@@ -241,38 +220,10 @@ export function CheckoutClient() {
         return;
       }
 
-      const orderId = (json as { orderId?: string }).orderId;
-      const qris = (json as { qris?: { qrImageUrl: string; label: string } }).qris;
-      const baseAmount = (json as { baseAmount?: number }).baseAmount;
-      const uniqueCode = (json as { uniqueCode?: number }).uniqueCode;
-      const amount = (json as { amount?: number }).amount;
-      const tokens = (json as { tokens?: number }).tokens;
-      const pkg = (json as { package?: string }).package;
-      if (!orderId || !qris?.qrImageUrl || !baseAmount || !uniqueCode || !amount || !pkg) {
-        push({
-          title: "Gagal memulai pembayaran",
-          description: "Data QRIS tidak lengkap.",
-          variant: "error"
-        });
-        setBusyPackage(null);
-        return;
-      }
-
-      setQrisPayment({
-        orderId,
-        package: pkg,
-        tokens: tokens ?? 0,
-        baseAmount,
-        uniqueCode,
-        totalAmount: amount,
-        requiresConfirmation: true,
-        label: qris.label ?? "QRIS",
-        qrImageUrl: normalizeQrisQrImageUrl(qris.qrImageUrl)
-      });
       push({
-        title: "Scan QRIS untuk bayar",
-        description: "Setelah bayar, klik Konfirmasi agar pembayaran tercatat.",
-        variant: "info"
+        title: "Gagal memulai pembayaran",
+        description: "Metode pembayaran tidak didukung.",
+        variant: "error"
       });
       setBusyPackage(null);
     } catch {
@@ -292,41 +243,6 @@ export function CheckoutClient() {
         title: "Paket tidak dikenali",
         description: "Silakan buat transaksi baru dari bagian atas.",
         variant: "error"
-      });
-      return;
-    }
-
-    if (isQrisStatic(tx)) {
-      const qrImageUrl = normalizeQrisQrImageUrl(
-        process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL ?? ""
-      );
-      const label = process.env.NEXT_PUBLIC_QRIS_STATIC_LABEL ?? "QRIS";
-      if (!qrImageUrl) {
-        push({
-          title: "QRIS belum tersedia",
-          description: "QRIS static belum dikonfigurasi.",
-          variant: "error"
-        });
-        return;
-      }
-      if (!tx.amount || !tx.orderId) {
-        push({
-          title: "Data transaksi tidak lengkap",
-          description: "Silakan buat transaksi baru dari bagian atas.",
-          variant: "error"
-        });
-        return;
-      }
-      setQrisPayment({
-        orderId: tx.orderId,
-        package: tx.package ?? pkgKey,
-        tokens: tx.tokens ?? 0,
-        baseAmount: tx.baseAmount ?? (tx.amount ?? 0) - (tx.uniqueCode ?? 0),
-        uniqueCode: tx.uniqueCode ?? 0,
-        totalAmount: tx.amount,
-        requiresConfirmation: false,
-        label,
-        qrImageUrl
       });
       return;
     }
@@ -500,7 +416,7 @@ export function CheckoutClient() {
                             </Button>
                           ) : tx.status === "pending" ? (
                             <Button size="sm" onClick={() => void continuePayment(tx)}>
-                              {isQrisStatic(tx) ? "Lihat QRIS" : "Lanjutkan Pembayaran"}
+                              Lanjutkan Pembayaran
                             </Button>
                           ) : (
                             <Button
@@ -549,50 +465,6 @@ export function CheckoutClient() {
         transaction={invoiceTransaction}
         accountName={accountName}
         accountEmail={accountEmail}
-      />
-
-      <QrisStaticPaymentModal
-        open={Boolean(qrisPayment)}
-        onOpenChange={(open) => {
-          if (!open) setQrisPayment(null);
-        }}
-        data={qrisPayment}
-        onConfirm={async (data) => {
-          try {
-            const res = await fetch("/api/token/confirm-qris", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                orderId: data.orderId,
-                package: data.package,
-                uniqueCode: data.uniqueCode
-              })
-            });
-            const json = (await res.json()) as { ok?: boolean; error?: string };
-            if (!res.ok || json?.error) {
-              push({
-                title: "Gagal konfirmasi pembayaran",
-                description: json?.error ?? "Coba lagi dalam beberapa saat.",
-                variant: "error"
-              });
-              return;
-            }
-
-            push({
-              title: "Pembayaran tercatat",
-              description: "Menunggu verifikasi admin.",
-              variant: "success"
-            });
-            setQrisPayment(null);
-            void mutateTransactions();
-          } catch {
-            push({
-              title: "Gagal konfirmasi pembayaran",
-              description: "Coba lagi dalam beberapa saat.",
-              variant: "error"
-            });
-          }
-        }}
       />
     </div>
   );

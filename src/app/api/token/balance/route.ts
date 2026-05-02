@@ -1,10 +1,9 @@
-import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
 import { sql } from "drizzle-orm";
 
 import { shouldBypassTokensForEmail } from "@/lib/admin";
-import { getAuthOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
@@ -12,7 +11,7 @@ import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await getServerSession(getAuthOptions());
+  const session = await auth();
   let userId = session?.user?.id;
   const userEmail = session?.user?.email;
 

@@ -1,5 +1,4 @@
-﻿# CANONICAL SOURCE: scripts/epanet/simulation.py — keep in sync
-"""
+﻿"""
 simulation.py â€” Simulasi hidraulik & evaluasi standar Permen PU No. 18/2007
 """
 

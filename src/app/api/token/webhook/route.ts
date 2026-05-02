@@ -34,7 +34,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const body = (await req.json()) as MidtransWebhookBody;
+  let body: MidtransWebhookBody;
+  try {
+    body = (await req.json()) as MidtransWebhookBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
   if (!verifySignature(body)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

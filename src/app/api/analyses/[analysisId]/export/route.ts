@@ -14,6 +14,7 @@ import {
   DOWNLOAD_INP_TOKEN_COST,
   DOWNLOAD_PDF_TOKEN_COST
 } from "@/lib/token-constants";
+import { toFiniteNumber } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -299,23 +300,6 @@ function escapeHtml(value: unknown) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function toFiniteNumber(v: unknown): number | null {
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (typeof v !== "string") return null;
-  const raw = v.trim();
-  if (!raw) return null;
-
-  const direct = Number(raw);
-  if (Number.isFinite(direct)) return direct;
-
-  if (raw.includes(",") && !raw.includes(".")) {
-    const n = Number(raw.replace(",", "."));
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
 }
 
 function fx(v: unknown, d = 2): string {

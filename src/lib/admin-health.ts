@@ -86,19 +86,12 @@ export function checkConfigSanity(): HealthCheckResult[] {
     process.env.NEXT_PUBLIC_MIDTRANS_CLIENT_KEY &&
     process.env.MIDTRANS_SERVER_KEY;
 
-  const qrisOk =
-    process.env.NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL;
-
   return [
     configured("DATABASE_URL", !!process.env.DATABASE_URL),
     configured("RESEND_API_KEY", !!process.env.RESEND_API_KEY),
     configured(
       "Midtrans",
       paymentProvider === "midtrans" ? !!midtransOk : true
-    ),
-    configured(
-      "QRIS Static",
-      paymentProvider === "qris_static" ? !!qrisOk : true
     )
   ];
 }

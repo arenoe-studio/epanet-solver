@@ -12,6 +12,7 @@ import { analyses, tokenBalances } from "@/lib/db/schema";
 import { buildPythonApiUrl } from "@/lib/python-api";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
+import { toFiniteNumber } from "@/lib/utils";
 
 function previewJson(value: unknown, maxChars = 2000) {
   try {
@@ -193,39 +194,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const pipesFull = (result as any).pipes;
   const materialsFull = (result as any).materials;
 
-  function toNumberOrNull(value: unknown): number | null {
-    if (typeof value === "number") return value;
-    if (typeof value === "string" && value.trim()) {
-      const raw = value.trim();
-      const direct = Number(raw);
-      if (Number.isFinite(direct)) return direct;
-
-      // Support locales that use comma as decimal separator (e.g., "12,34").
-      if (raw.includes(",") && !raw.includes(".")) {
-        const n = Number(raw.replace(",", "."));
-        return Number.isFinite(n) ? n : null;
-      }
-
-      return null;
-    }
-    return null;
-  }
-
   const allowedNodeCodes = new Set(["P-OK", "P-LOW", "P-HIGH", "P-NEG"]);
   function normalizeNode(raw: any) {
-    const elevation = toNumberOrNull(raw?.elevation);
-    const baseDemandLps = toNumberOrNull(raw?.baseDemandLps);
+    const elevation = toFiniteNumber(raw?.elevation);
+    const baseDemandLps = toFiniteNumber(raw?.baseDemandLps);
 
-    const headAwalM = toNumberOrNull(raw?.headAwalM);
-    const headDiameterM = toNumberOrNull(raw?.headDiameterM);
-    const headTekananM = toNumberOrNull(raw?.headTekananM);
+    const headAwalM = toFiniteNumber(raw?.headAwalM);
+    const headDiameterM = toFiniteNumber(raw?.headDiameterM);
+    const headTekananM = toFiniteNumber(raw?.headTekananM);
 
-    const pressureAwalM = toNumberOrNull(raw?.pressureAwalM);
-    const pressureDiameterM = toNumberOrNull(raw?.pressureDiameterM);
-    const pressureTekananM = toNumberOrNull(raw?.pressureTekananM);
+    const pressureAwalM = toFiniteNumber(raw?.pressureAwalM);
+    const pressureDiameterM = toFiniteNumber(raw?.pressureDiameterM);
+    const pressureTekananM = toFiniteNumber(raw?.pressureTekananM);
 
-    const pressureBefore = toNumberOrNull(raw?.pressureBefore);
-    const pressureAfter = toNumberOrNull(raw?.pressureAfter);
+    const pressureBefore = toFiniteNumber(raw?.pressureBefore);
+    const pressureAfter = toFiniteNumber(raw?.pressureAfter);
 
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
@@ -273,32 +256,32 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       id: String(raw?.id ?? ""),
       fromNode: typeof raw?.fromNode === "string" ? raw.fromNode : null,
       toNode: typeof raw?.toNode === "string" ? raw.toNode : null,
-      length: toNumberOrNull(raw?.length),
-      roughnessC: toNumberOrNull(raw?.roughnessC),
-      diameterAwalMm: toNumberOrNull(raw?.diameterAwalMm),
-      diameterDiameterMm: toNumberOrNull(raw?.diameterDiameterMm),
-      diameterTekananMm: toNumberOrNull(raw?.diameterTekananMm),
-      flowAwalLps: toNumberOrNull(raw?.flowAwalLps),
-      flowDiameterLps: toNumberOrNull(raw?.flowDiameterLps),
-      flowTekananLps: toNumberOrNull(raw?.flowTekananLps),
-      flowAwalLpsAbs: toNumberOrNull(raw?.flowAwalLpsAbs),
-      flowDiameterLpsAbs: toNumberOrNull(raw?.flowDiameterLpsAbs),
-      flowTekananLpsAbs: toNumberOrNull(raw?.flowTekananLpsAbs),
+      length: toFiniteNumber(raw?.length),
+      roughnessC: toFiniteNumber(raw?.roughnessC),
+      diameterAwalMm: toFiniteNumber(raw?.diameterAwalMm),
+      diameterDiameterMm: toFiniteNumber(raw?.diameterDiameterMm),
+      diameterTekananMm: toFiniteNumber(raw?.diameterTekananMm),
+      flowAwalLps: toFiniteNumber(raw?.flowAwalLps),
+      flowDiameterLps: toFiniteNumber(raw?.flowDiameterLps),
+      flowTekananLps: toFiniteNumber(raw?.flowTekananLps),
+      flowAwalLpsAbs: toFiniteNumber(raw?.flowAwalLpsAbs),
+      flowDiameterLpsAbs: toFiniteNumber(raw?.flowDiameterLpsAbs),
+      flowTekananLpsAbs: toFiniteNumber(raw?.flowTekananLpsAbs),
       flowAwalDir: typeof raw?.flowAwalDir === "string" ? raw.flowAwalDir : null,
       flowDiameterDir: typeof raw?.flowDiameterDir === "string" ? raw.flowDiameterDir : null,
       flowTekananDir: typeof raw?.flowTekananDir === "string" ? raw.flowTekananDir : null,
-      velocityAwalMps: toNumberOrNull(raw?.velocityAwalMps),
-      velocityDiameterMps: toNumberOrNull(raw?.velocityDiameterMps),
-      velocityTekananMps: toNumberOrNull(raw?.velocityTekananMps),
-      unitHeadlossAwalMkm: toNumberOrNull(raw?.unitHeadlossAwalMkm),
-      unitHeadlossDiameterMkm: toNumberOrNull(raw?.unitHeadlossDiameterMkm),
-      unitHeadlossTekananMkm: toNumberOrNull(raw?.unitHeadlossTekananMkm),
-      diameterBefore: toNumberOrNull(raw?.diameterBefore),
-      diameterAfter: toNumberOrNull(raw?.diameterAfter),
-      velocityBefore: toNumberOrNull(raw?.velocityBefore),
-      velocityAfter: toNumberOrNull(raw?.velocityAfter),
-      headlossBefore: toNumberOrNull(raw?.headlossBefore),
-      headlossAfter: toNumberOrNull(raw?.headlossAfter),
+      velocityAwalMps: toFiniteNumber(raw?.velocityAwalMps),
+      velocityDiameterMps: toFiniteNumber(raw?.velocityDiameterMps),
+      velocityTekananMps: toFiniteNumber(raw?.velocityTekananMps),
+      unitHeadlossAwalMkm: toFiniteNumber(raw?.unitHeadlossAwalMkm),
+      unitHeadlossDiameterMkm: toFiniteNumber(raw?.unitHeadlossDiameterMkm),
+      unitHeadlossTekananMkm: toFiniteNumber(raw?.unitHeadlossTekananMkm),
+      diameterBefore: toFiniteNumber(raw?.diameterBefore),
+      diameterAfter: toFiniteNumber(raw?.diameterAfter),
+      velocityBefore: toFiniteNumber(raw?.velocityBefore),
+      velocityAfter: toFiniteNumber(raw?.velocityAfter),
+      headlossBefore: toFiniteNumber(raw?.headlossBefore),
+      headlossAfter: toFiniteNumber(raw?.headlossAfter),
       code
     };
   }

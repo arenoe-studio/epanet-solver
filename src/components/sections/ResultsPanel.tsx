@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { openBuyTokenModal } from "@/lib/ui-events";
+import { toFiniteNumber } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AnalysisResult } from "@/types";
@@ -31,24 +32,6 @@ type ResultsPanelProps = {
   isFixingPressure: boolean;
   tokenBalance?: number | null;
 };
-
-function toFiniteNumber(v: unknown): number | null {
-  if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  if (typeof v !== "string") return null;
-  const raw = v.trim();
-  if (!raw) return null;
-
-  const direct = Number(raw);
-  if (Number.isFinite(direct)) return direct;
-
-  // Support locales that use comma as decimal separator (e.g., "12,34").
-  if (raw.includes(",") && !raw.includes(".")) {
-    const n = Number(raw.replace(",", "."));
-    return Number.isFinite(n) ? n : null;
-  }
-
-  return null;
-}
 
 function fx(v: unknown, d = 2): string {
   const n = toFiniteNumber(v);

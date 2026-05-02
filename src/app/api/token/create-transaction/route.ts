@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { randomInt } from "crypto";
-import { z } from "zod";
+import { ZodError, z } from "zod";
 
 import { eq } from "drizzle-orm";
 
@@ -9,7 +8,7 @@ import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { transactions, users } from "@/lib/db/schema";
 import { getSnap } from "@/lib/midtrans";
-import { getPaymentProvider, getQrisStaticConfig } from "@/lib/payment";
+import { getPaymentProvider } from "@/lib/payment";
 import { rateLimitCreateTransaction } from "@/lib/ratelimit";
 import {
   TOKEN_PACKAGES,
@@ -55,7 +54,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const body = bodySchema.parse(await req.json());
+  let body: z.infer<typeof bodySchema>;
+  try {
+    body = bodySchema.parse(await req.json());
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return NextResponse.json(
+        { error: "Input tidak valid", details: (error as any).errors },
+        { status: 422 }
+      );
+    }
+    return NextResponse.json({ error: "Request body tidak valid" }, { status: 400 });
+  }
   const pkgKey = body.package as TokenPackageKey;
   const pkg = TOKEN_PACKAGES[pkgKey];
   const orderId = `EPANET-${userId.slice(0, 8)}-${Date.now()}`;
@@ -104,31 +114,8 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ provider, snapToken, orderId });
   }
-
-  const qris = getQrisStaticConfig();
-  if (!qris) {
-    return NextResponse.json(
-      {
-        error:
-          "Metode pembayaran QRIS belum dikonfigurasi. Set NEXT_PUBLIC_QRIS_STATIC_QR_IMAGE_URL."
-      },
-      { status: 500 }
-    );
-  }
-
-  // QRIS static: jangan langsung mencatat transaksi sebelum user konfirmasi.
-  const uniqueCode = randomInt(1, 100); // 1..99
-  const baseAmount = pkg.amount;
-  const amount = baseAmount + uniqueCode;
-
-  return NextResponse.json({
-    provider,
-    orderId,
-    qris,
-    baseAmount,
-    uniqueCode,
-    amount,
-    tokens: pkg.tokens,
-    package: pkgKey
-  });
+  return NextResponse.json(
+    { error: "Unsupported payment provider" },
+    { status: 500 }
+  );
 }

@@ -301,13 +301,13 @@ export default async function AdminUserDetailPage({
                         <form action={adminUpdateTransaction}>
                           <input type="hidden" name="transactionId" value={t.id} />
                           <input type="hidden" name="status" value="paid" />
-                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "qris_static"} />
+                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
                           <button type="submit" className="rounded bg-green-600 px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90">Set Paid</button>
                         </form>
                         <form action={adminUpdateTransaction}>
                           <input type="hidden" name="transactionId" value={t.id} />
                           <input type="hidden" name="status" value="failed" />
-                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "qris_static"} />
+                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
                           <button type="submit" className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f5f5f7]">Set Failed</button>
                         </form>
                       </div>

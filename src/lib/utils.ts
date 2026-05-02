@@ -35,3 +35,20 @@ export function normalizeQrisQrImageUrl(input: string) {
 
   return `/${raw}`;
 }
+
+export function toFiniteNumber(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const raw = v.trim();
+  if (!raw) return null;
+
+  const direct = Number(raw);
+  if (Number.isFinite(direct)) return direct;
+
+  if (raw.includes(",") && !raw.includes(".")) {
+    const n = Number(raw.replace(",", "."));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  return null;
+}

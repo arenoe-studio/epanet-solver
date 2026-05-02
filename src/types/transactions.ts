@@ -6,7 +6,6 @@ export type TransactionRow = {
   package: string | null;
   tokens: number | null;
   baseAmount: number | null;
-  uniqueCode: number | null;
   amount: number | null;
   status: TransactionStatus | string | null;
   paymentMethod: string | null;

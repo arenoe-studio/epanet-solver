@@ -243,7 +243,7 @@ export default async function AdminPaymentsPage({
                           <form action={adminUpdateTransaction}>
                             <input type="hidden" name="transactionId" value={row.id} />
                             <input type="hidden" name="status" value="paid" />
-                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
+                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "midtrans"} />
                             <ConfirmButton
                               message={`Set PAID: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`}
                               className="rounded bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
@@ -254,7 +254,7 @@ export default async function AdminPaymentsPage({
                           <form action={adminUpdateTransaction}>
                             <input type="hidden" name="transactionId" value={row.id} />
                             <input type="hidden" name="status" value="failed" />
-                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "qris_static"} />
+                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "midtrans"} />
                             <ConfirmButton
                               message={`Set FAILED: ${row.orderId}?`}
                               className="rounded border border-[#e4e5ea] px-2.5 py-1 text-xs font-medium text-[#6b7280] hover:bg-[#f5f5f7]"

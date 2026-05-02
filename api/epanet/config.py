@@ -1,5 +1,4 @@
-﻿# CANONICAL SOURCE: scripts/epanet/config.py — keep in sync
-"""
+﻿"""
 config.py â€” Konstanta & konfigurasi global
 Standar: Permen PU No. 18/2007
 """

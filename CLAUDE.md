@@ -7,7 +7,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 EPANET Network Analyzer & Optimizer — a Python engine that loads a water distribution network from an EPANET `.inp` file, runs a hydraulic simulation, checks compliance against Indonesian standard **Permen PU No. 18/2007**, and automatically optimizes pipe diameters to fix violations.
 
 The project has two deployment targets:
-- **CLI** (`scripts/`) — local Python tool
 - **Web app** (`src/` + `api/`) — Next.js 16 frontend + Vercel serverless Python handler
 
 ## Running the Tool
@@ -17,14 +16,8 @@ The project has two deployment targets:
 All commands must be run from the project root (`epanet-solver/`):
 
 ```bash
-# Run with auto-detected .inp file (searches data_Input/ first)
-python scripts/epanet_optimizer.py
-
-# Run with a specific .inp file
-python scripts/epanet_optimizer.py --input "data_Input/network.inp"
-
-# Analysis only, skip diameter optimization
-python scripts/epanet_optimizer.py --no-optimize
+api/epanet/ is the single source of truth for the Python engine.
+scripts/epanet/ has been removed.
 ```
 
 **Required Python packages:** `wntr==1.2.1`, `pandas>=1.5.0`, `numpy>=1.23.0`  
@@ -59,29 +52,19 @@ npm run dev
 ### Linting / Syntax Check
 
 ```bash
-python -m py_compile scripts/epanet_optimizer.py
-python -m flake8 scripts/epanet_optimizer.py --max-line-length=120
+python -m py_compile api/analyze_python.py
+python -m flake8 api/analyze_python.py --max-line-length=120
 ```
 
 ## Code Architecture
 
 ```
 scripts/
-  epanet_optimizer.py      # CLI entry point — orchestrates steps 1–5
   dev_server.py            # Local HTTP server (mirrors Vercel handler for dev)
-  epanet/
-    config.py              # All thresholds and constants (single source of truth)
-    network_io.py          # Load/sanitize .inp → WaterNetworkModel; export .inp
-    simulation.py          # run_simulation() + evaluate_network()
-    diameter.py            # Analytical Window Method; standard diameter catalog
-    optimizer.py           # Iterative optimization loop (priority passes)
-    materials.py           # Material recommendation per pipe (PVC/HDPE/GIP/Steel)
-    prv.py                 # Pressure Reducing Valve placement & multi-stage tuning
-    reporter.py            # Markdown report generation
 
 api/
   analyze_python.py        # Vercel serverless handler (BaseHTTPRequestHandler)
-  epanet/                  # Bundled copy of scripts/epanet/ for Vercel deployment
+  epanet/                  # Python engine (single source of truth)
   requirements.txt
 
 src/
@@ -113,7 +96,7 @@ src/
     analysis-snapshots.ts  # Store/retrieve large result payloads as JSONB
 ```
 
-**Important:** `api/epanet/` is a manually kept copy of `scripts/epanet/`. When changing core engine logic, update both locations.
+**Important:** When changing core engine logic, only update `api/epanet/`.
 
 ### Data Flow (Python Engine)
 

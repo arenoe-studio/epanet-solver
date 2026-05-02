@@ -1,5 +1,4 @@
-﻿# CANONICAL SOURCE: scripts/epanet/network_io.py — keep in sync
-"""
+﻿"""
 network_io.py â€” Load, sanitasi, dan ekspor file .inp EPANET
 """
 
