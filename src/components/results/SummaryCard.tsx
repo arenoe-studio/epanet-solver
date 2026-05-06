@@ -28,7 +28,7 @@ export function SummaryCard({
   };
 
   const engine = engineUsed?.toLowerCase();
-  const durationSeconds = summary.duration ?? undefined;
+  const durationSeconds = (summary as any).durationSeconds ?? summary.duration ?? undefined;
   const remainingIssues = summary.remainingIssues ?? 0;
 
   return (
@@ -102,4 +102,3 @@ function Stat({
     </div>
   );
 }
-

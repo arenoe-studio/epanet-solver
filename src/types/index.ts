@@ -114,6 +114,20 @@ export type AnalysisResult = {
   sourceFileBase64?: string;
   sourceFileUrl?: string;
   kind?: AnalysisKind;
+  remainingErrors?: Array<{
+    type: string;
+    elementId: string;
+    value: number;
+    unit: string;
+    explanation: string;
+    suggestion: string;
+  }>;
+  diameterChanges?: Array<{
+    pipeId: string;
+    oldDiameterMm: number;
+    newDiameterMm: number;
+    reason: string;
+  }>;
   engineUsed?: string;
   addPrvAvailable?: boolean;
   prvRecommendation?: {
