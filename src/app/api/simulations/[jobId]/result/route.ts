@@ -119,14 +119,21 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const successSchema = z
     .object({
       success: z.literal(true),
+      filename: z.string().optional(),
+      engineUsed: z.string().optional(),
+      diameterChanges: z.array(z.unknown()).optional(),
+      remainingErrors: z.array(z.unknown()).optional(),
+      pressureAnalysisAvailable: z.boolean().optional(),
+      addPrvAvailable: z.boolean().optional(),
+      prvRecommendation: z.unknown().optional(),
       summary: z.object({
         iterations: z.number(),
         issuesFound: z.number(),
         issuesFixed: z.number(),
         remainingIssues: z.number().optional(),
         duration: z.number().optional(),
-        nodes: z.number(),
-        pipes: z.number(),
+        nodes: z.number().optional(),
+        pipes: z.number().optional(),
         fileName: z.string().optional(),
         action: z.enum(["analyze", "fix_pressure"]).optional(),
         pressureOptimizationAvailable: z.boolean().optional()
@@ -384,8 +391,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
         .update(analyses)
         .set({
           status: "success",
-          nodesCount: result.summary.nodes,
-          pipesCount: result.summary.pipes,
+          nodesCount: result.summary.nodes ?? null,
+          pipesCount: result.summary.pipes ?? null,
           issuesFound: result.summary.issuesFound,
           issuesFixed: result.summary.issuesFixed
         })
