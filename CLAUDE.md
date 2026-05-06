@@ -238,3 +238,19 @@ Before writing ANY Drizzle ORM query in any file:
    input and output — remove only after confirmed working in production
 5. When a new function mirrors an existing one, copy its exact table
    references — do not rewrite from scratch
+
+## 5.3 Panduan untuk AI Agent (Wajib Dibaca Sebelum Coding)
+
+> **PERINGATAN:** Bagian ini adalah aturan ketat yang harus diikuti AI agent saat mengimplementasi UI.
+> 
+1. **Jangan ubah struktur token** — token cost per fitur sudah final, tidak boleh diubah tanpa konfirmasi eksplisit
+2. **Jangan gabungkan Run Diameter dan Run Pressure** — keduanya harus tetap independen dan terpisah
+3. **Jangan tambahkan fitur baru** yang tidak ada di spesifikasi ini tanpa konfirmasi
+4. **Jangan ubah Python engine** tanpa memahami alur di Section 4 — setiap perubahan engine harus surgical
+5. **Selalu tampilkan satuan** di setiap nilai numerik
+6. **Selalu handle null/undefined** untuk semua field output Python (lihat Section 4.7)
+7. **Jangan auto-download** — user harus klik tombol Download secara eksplisit
+8. **Jangan modifikasi file .inp** saat Run Analysis Pressure — hanya rekomendasi
+9. **Wajib buat dan update file memory/mapping** — setiap AI agent yang mengerjakan codebase ini wajib membaca dan mengupdate file `docs/CODEBASE_MAP.md` yang berisi nama fungsi, alur, dan mapping file. Jangan berasumsi dari nama file saja.
+10. **Jangan handle error dengan fallback sembarangan** — setiap error harus diidentifikasi akar masalahnya dulu, baru putuskan apakah fallback tepat. Jangan sembunyikan error dengan silent catch atau generic handler tanpa logging.
+11. **Pecah kode per fungsi dan file** — setiap file harus punya satu tanggung jawab yang jelas. Jangan gabungkan logika berbeda dalam satu file. Nama file harus mencerminkan fungsinya agar mudah diindeks tanpa harus membaca isi kode.

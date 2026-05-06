@@ -227,9 +227,9 @@ export function ResultsPanel({
   const warnings = result.warnings ?? [];
   const remainingIssues = result.summary.remainingIssues ?? 0;
   const remainingPressureIssues =
-    (postFix?.remainingHighNodes.length ?? 0)
-    + (postFix?.remainingLowNodes.length ?? 0)
-    + (postFix?.remainingNegativeNodes.length ?? 0);
+    (postFix?.remainingHighNodes?.length ?? 0)
+    + (postFix?.remainingLowNodes?.length ?? 0)
+    + (postFix?.remainingNegativeNodes?.length ?? 0);
   const remainingPipeIssues = pipes.filter((p) => p.code !== "OK").length;
   const isPressureResolved = postFix?.status === "resolved";
 
@@ -790,11 +790,11 @@ export function ResultsPanel({
                   </div>
                   <div className="mt-2 space-y-1 text-xs leading-relaxed text-yellow-900">
                     <p>
-                      Sisa P-HIGH: {postFix.remainingHighNodes.length} · P-LOW:{" "}
-                      {postFix.remainingLowNodes.length} · P-NEG:{" "}
-                      {postFix.remainingNegativeNodes.length}
+                      Sisa P-HIGH: {(postFix.remainingHighNodes?.length ?? 0)} · P-LOW:{" "}
+                      {(postFix.remainingLowNodes?.length ?? 0)} · P-NEG:{" "}
+                      {(postFix.remainingNegativeNodes?.length ?? 0)}
                     </p>
-                    {postFix.recommendations.map((item, index) => (
+                    {postFix.recommendations?.map((item, index) => (
                       <p key={`${index}-${item}`}>• {item}</p>
                     ))}
                   </div>
@@ -824,14 +824,14 @@ export function ResultsPanel({
                   </Table>
                 </div>
               )}
-              {materials.some((m) => m.notes.some((note) => note.includes("Evaluasi ulang"))) && (
+              {materials.some((m) => m.notes?.some((note) => note.includes("Evaluasi ulang"))) && (
                 <p className="text-xs italic text-orange-700">
                   Beberapa pipa di zona PRV perlu evaluasi ulang material setelah tekanan berubah.
                 </p>
               )}
               {postFix?.recommendedActions?.some((action) => (action.nodes?.length ?? 0) > 0) && (
                 <div className="space-y-2 text-xs text-slate-gray">
-                  {postFix.recommendedActions.map((action, index) => (
+                  {postFix.recommendedActions?.map((action, index) => (
                     <p key={`${action.type}-${index}`}>
                       <span className="font-medium text-near-black">{action.message}</span>
                       {action.nodes && action.nodes.length > 0 ? ` Node: ${action.nodes.join(", ")}.` : ""}

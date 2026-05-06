@@ -202,10 +202,11 @@ export default function UploadPage() {
         prv: done.prv,
         files: done.files,
         filesV1: done.filesV1,
-        filesFinal: done.filesFinal,
-        nodes: done.nodes,
-        pipes: done.pipes,
-        materials: done.materials,
+        filesFinal: done.filesFinal ?? null,
+        nodes: done.nodes ?? [],
+        pipes: done.pipes ?? [],
+        materials: done.materials ?? [],
+        warnings: done.warnings ?? [],
         networkInfo: done.networkInfo
       };
 
@@ -345,10 +346,11 @@ export default function UploadPage() {
         prv: done.prv,
         files: done.files,
         filesV1: done.filesV1,
-        filesFinal: done.filesFinal,
-        nodes: done.nodes,
-        pipes: done.pipes,
-        materials: done.materials,
+        filesFinal: done.filesFinal ?? null,
+        nodes: done.nodes ?? [],
+        pipes: done.pipes ?? [],
+        materials: done.materials ?? [],
+        warnings: done.warnings ?? [],
         networkInfo: done.networkInfo
       };
 

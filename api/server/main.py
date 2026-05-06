@@ -12,6 +12,10 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from .analysis import InpValidationError, UserError, analyze_inp_bytes
 from .config import get_settings
+from .handlers.diameter import analyze_diameter
+from .handlers.pressure import analyze_pressure
+from .handlers.preview import preview_inp
+from .handlers.add_prv import add_prv
 from .jobs import JobStore
 
 from api.epanet.simulation import EpanetToolkitUnavailable
@@ -35,6 +39,19 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.post("/v1/preview")
+async def preview_network(file: UploadFile = File(...)):
+    try:
+        data = await file.read()
+        result = preview_inp(inp_bytes=data, filename=file.filename or "network.inp")
+        return JSONResponse(result)
+    except InpValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="System error")
 
 
 @app.post("/v1/analyze")
@@ -72,6 +89,139 @@ async def analyze(
     except Exception:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="System error")
+
+
+@app.post("/v1/analyze/diameter")
+async def analyze_diameter_endpoint(
+    file: UploadFile = File(...),
+    max_iterations: int = Form(default=settings.default_max_iterations),
+    time_budget_s: float = Form(default=settings.default_time_budget_s),
+):
+    try:
+        job = jobs.create()
+        job_dir = jobs.job_file(job.id, "input.inp").parent
+        job_dir.mkdir(parents=True, exist_ok=True)
+        inp_path = job_dir / "input.inp"
+        raw = await file.read()
+        original_filename = file.filename or "network.inp"
+        inp_path.write_bytes(raw)
+    except (UserError, InpValidationError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to create simulation job")
+
+    def _run():
+        jobs.mark_running(job.id)
+        try:
+            result = analyze_diameter(
+                inp_bytes=raw,
+                filename=original_filename,
+                max_iterations=max_iterations,
+                time_budget_s=time_budget_s,
+            )
+            jobs.mark_succeeded(job.id, result)
+        except InpValidationError as e:
+            jobs.mark_failed(job.id, str(e))
+        except RuntimeError as e:
+            jobs.mark_failed(job.id, str(e))
+        except Exception as e:
+            jobs.mark_failed(job.id, str(e))
+
+    try:
+        executor.submit(_run)
+    except Exception:
+        traceback.print_exc()
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+    return {"id": job.id, "status": job.status}
+
+@app.post("/v1/analyze/pressure")
+async def analyze_pressure_endpoint(file: UploadFile = File(...)):
+    try:
+        job = jobs.create()
+        job_dir = jobs.job_file(job.id, "input.inp").parent
+        job_dir.mkdir(parents=True, exist_ok=True)
+        inp_path = job_dir / "input.inp"
+        raw = await file.read()
+        original_filename = file.filename or "network.inp"
+        inp_path.write_bytes(raw)
+    except (UserError, InpValidationError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to create simulation job")
+
+    def _run():
+        jobs.mark_running(job.id)
+        try:
+            result = analyze_pressure(inp_bytes=raw, filename=original_filename)
+            jobs.mark_succeeded(job.id, result)
+        except InpValidationError as e:
+            jobs.mark_failed(job.id, str(e))
+        except RuntimeError as e:
+            jobs.mark_failed(job.id, str(e))
+        except Exception as e:
+            jobs.mark_failed(job.id, str(e))
+
+    try:
+        executor.submit(_run)
+    except Exception:
+        traceback.print_exc()
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+    return {"id": job.id, "status": job.status}
+
+@app.post("/v1/analyze/add-prv")
+async def add_prv_endpoint(
+    file: UploadFile = File(...),
+    prv_recommendations: str = Form(...),
+):
+    import json
+
+    try:
+        prv_data = json.loads(prv_recommendations)
+        if not isinstance(prv_data, list):
+            raise ValueError("prv_recommendations must be a list")
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid prv_recommendations JSON")
+
+    try:
+        job = jobs.create()
+        job_dir = jobs.job_file(job.id, "input.inp").parent
+        job_dir.mkdir(parents=True, exist_ok=True)
+        inp_path = job_dir / "input.inp"
+        raw = await file.read()
+        original_filename = file.filename or "network.inp"
+        inp_path.write_bytes(raw)
+    except (UserError, InpValidationError) as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to create simulation job")
+
+    def _run():
+        jobs.mark_running(job.id)
+        try:
+            result = add_prv(inp_bytes=raw, filename=original_filename, prv_recommendations=prv_data)
+            jobs.mark_succeeded(job.id, result)
+        except (ValueError, InpValidationError) as e:
+            jobs.mark_failed(job.id, str(e))
+        except RuntimeError as e:
+            jobs.mark_failed(job.id, str(e))
+        except Exception as e:
+            jobs.mark_failed(job.id, str(e))
+
+    try:
+        executor.submit(_run)
+    except Exception:
+        traceback.print_exc()
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+    return {"id": job.id, "status": job.status}
 
 
 @app.post("/v1/simulations")
