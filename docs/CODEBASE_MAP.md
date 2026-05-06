@@ -226,11 +226,59 @@
 - **Dependensi:** `src/components/ui/button.tsx`
 - **Catatan penting:** Fetch SWR `/api/analyses/recent`; menghitung label issues `found -> remaining`.
 
-## src/components/sections/ResultsPanel.tsx
+## src/components/results/ResultsPanel.tsx
 - **Fungsi/komponen/type:** `ResultsPanel`
-- **Tugas:** Panel hasil analisis: tabs nodes/links/materials + rekomendasi PRV + aksi download export (inp/pdf/excel) dan “Fix Pressure”.
-- **Dependensi:** `src/components/ui/button.tsx`, `src/components/ui/table.tsx`, `src/components/ui/tabs.tsx`, `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`, `src/lib/token-constants.ts`, `src/lib/ui-events.ts`, `src/lib/utils.ts`, `src/types/index.ts`
-- **Catatan penting:** Download memakai base64 atau URL; ada parse `content-disposition`; logic token cost untuk export + fix pressure; file ini panjang dan jadi pusat UI hasil.
+- **Tugas:** Orchestrator UI hasil analisis: navigasi (“← Kembali”, “Analisis File Baru”), ringkasan (`SummaryCard`), tabs detail (Pipa/Node/Material), panel perubahan diameter (conditional), daftar masalah tersisa, rekomendasi PRV (conditional), dan aksi download.
+- **Dependensi:** `src/components/results/SummaryCard.tsx`, `src/components/results/PipesTable.tsx`, `src/components/results/NodesTable.tsx`, `src/components/results/RemainingErrors.tsx`, `src/components/results/DiameterChanges.tsx`, `src/components/results/PrvRecommendation.tsx`, `src/components/results/DownloadActions.tsx`, `src/components/ui/button.tsx`, `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`, `src/components/ui/tabs.tsx`, `src/components/ui/table.tsx`, `src/types/index.ts`
+- **Catatan penting:** Menurunkan data `AnalysisResult` menjadi row sederhana untuk tabel; `result.kind` default ke `"diameter"` bila undefined; tab memakai guard `isTab()` untuk type-safe.
+
+## src/components/results/SummaryCard.tsx
+- **Fungsi/komponen/type:** `SummaryCard`
+- **Tugas:** Card ringkasan hasil analisis: badge jenis analisis (`AnalysisKind`), badge konvergensi (opsional), engineUsed (opsional) + warning jika `engineUsed="wntr"`, dan grid statistik (issues found/fixed/remaining + durasi).
+- **Dependensi:** `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`, `src/types/index.ts`
+- **Catatan penting:** `convergenceStatus` hanya ditampilkan jika bernilai salah satu `CONVERGED|STUCK|STAGNANT`.
+
+## src/components/results/PipesTable.tsx
+- **Fungsi/komponen/type:** `PipesTable`
+- **Tugas:** Tabel kondisi pipa + filter pill “Semua/Bermasalah”; menampilkan diameter, velocity, headloss, dan badge status velocity/headloss.
+- **Dependensi:** `src/components/ui/badge.tsx`, `src/components/ui/table.tsx`
+- **Catatan penting:** “Bermasalah” = `velocityStatus !== "OK"` ATAU `headlossStatus !== "OK"`; container dibuat scrollable (`max-h` + `overflow-auto`).
+
+## src/components/results/NodesTable.tsx
+- **Fungsi/komponen/type:** `NodesTable`
+- **Tugas:** Tabel kondisi node + filter pill “Semua/Bermasalah”; menampilkan tekanan (2 desimal) dan badge status tekanan.
+- **Dependensi:** `src/components/ui/badge.tsx`, `src/components/ui/table.tsx`
+- **Catatan penting:** “Bermasalah” = `pressureStatus !== "OK"`; container dibuat scrollable (`max-h` + `overflow-auto`).
+
+## src/components/results/RemainingErrors.tsx
+- **Fungsi/komponen/type:** `RemainingErrors`
+- **Tugas:** Menampilkan daftar error tersisa; jika kosong tampil “✅ Tidak ada masalah yang tersisa.”, jika ada ditampilkan sebagai card per error (type + elementId + value/unit + explanation + suggestion).
+- **Dependensi:** `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`
+- **Catatan penting:** Warna badge type ditentukan heuristik string (mis. `*HIGH*`/`*NEG*` → merah; `*LOW*`/`*SMALL*` → kuning).
+
+## src/components/results/DiameterChanges.tsx
+- **Fungsi/komponen/type:** `DiameterChanges`
+- **Tugas:** Menampilkan perubahan diameter pipa dalam bentuk tabel; jika kosong tampil “Tidak ada perubahan diameter.”
+- **Dependensi:** `src/components/ui/badge.tsx`, `src/components/ui/table.tsx`
+- **Catatan penting:** Badge alasan memetakan `V-HIGH|V-LOW|HL-HIGH|HL-SMALL` ke label bahasa Indonesia.
+
+## src/components/results/PrvRecommendation.tsx
+- **Fungsi/komponen/type:** `PrvRecommendation`
+- **Tugas:** UI rekomendasi PRV dari `AnalysisResult.prvRecommendation`: tabel rekomendasi + warning unresolved nodes + tombol “Add PRV Otomatis — 3 Token” (disabled saat proses atau token kurang).
+- **Dependensi:** `src/components/ui/button.tsx`, `src/components/ui/badge.tsx`, `src/components/ui/table.tsx`, `src/types/index.ts`
+- **Catatan penting:** `tokenBalance` dicek hanya jika tidak null/undefined; bila `prvRecommendation` null atau `needed=false`, tampilkan status OK.
+
+## src/components/results/DownloadActions.tsx
+- **Fungsi/komponen/type:** `DownloadActions`
+- **Tugas:** Aksi download export dari server (`POST /api/analyses/:analysisId/export?format=...`): PDF (gratis) + INP (berbayar) tergantung `kind`; menampilkan state busy/error dan link “Beli Token” jika token tidak cukup.
+- **Dependensi:** `src/components/ui/button.tsx`, `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`, `src/lib/ui-events.ts`, `src/types/index.ts`
+- **Catatan penting:** `downloadExport()` mengunduh via `fetch`→`blob`→`URL.createObjectURL` + parse filename dari `content-disposition`.
+
+## src/hooks/useFilePreview.ts
+- **Fungsi/komponen/type:** `useFilePreview`
+- **Tugas:** Client hook untuk preview file `.inp` sebelum analisis: POST file ke `/api/analyze/preview`, lalu expose `{ preview, isLoading, error, reset }`.
+- **Dependensi:** `src/types/index.ts` (`PreviewResult`), fetch `/api/analyze/preview`
+- **Catatan penting:** Menggunakan `AbortController` untuk membatalkan request saat file berubah/unmount; status internal `"idle"|"loading"|"success"|"error"`.
 
 ## src/components/ui/button.tsx
 - **Fungsi/komponen/type:** `Button` (forwardRef)
@@ -335,10 +383,10 @@
 - **Catatan penting:** `getPaymentProvider()` selalu fallback ke `midtrans`; provider lain tidak didukung.
 
 ## src/lib/token-constants.ts
-- **Fungsi/komponen/type:** `INITIAL_FREE_TOKENS`, `ANALYSIS_TOKEN_COST`, `FIX_PRESSURE_TOKEN_COST`, `DOWNLOAD_PDF_TOKEN_COST`, `DOWNLOAD_INP_TOKEN_COST`, `DOWNLOAD_EXCEL_TOKEN_COST`
+- **Fungsi/komponen/type:** `INITIAL_FREE_TOKENS`, `ANALYSIS_TOKEN_COST`, `PRESSURE_ANALYSIS_TOKEN_COST`, `FIX_PRESSURE_TOKEN_COST`, `DOWNLOAD_PDF_TOKEN_COST`, `DOWNLOAD_INP_TOKEN_COST`, `DOWNLOAD_EXCEL_TOKEN_COST`
 - **Tugas:** Konstanta pricing token (analisis, fix pressure, export).
 - **Dependensi:** (tidak ada import internal)
-- **Catatan penting:** PDF export gratis (0 token).
+- **Catatan penting:** `PRESSURE_ANALYSIS_TOKEN_COST = 1`; PDF export gratis (0 token).
 
 ## src/lib/token-packages.ts
 - **Fungsi/komponen/type:** `TOKEN_PACKAGE_ORDER`, `TokenPackageKey` (type), `TokenPackage` (type), `TOKEN_PACKAGES`, `resolveTokenPackageKey`, `getTokenPackage`, `TOKEN_PACKAGES_LIST`
@@ -476,6 +524,45 @@
 - **Output:** Sukses: `{ success: true, analysisId, jobId }`; Error: `{ error }` (401/400/402/429/500) atau `{ success:false, error }` saat backend python error.
 - **DB:** Insert `analyses` status `processing` + `tokensUsed` (line 61–67); update `analyses.status="failed"` saat backend gagal/timeout (line 89, 113).
 - **Catatan penting:** Rate limit `rateLimitAnalyze("user:<id>")`; backend call ke Python API `/v1/simulations` timeout 15s (lihat `AbortSignal.timeout(15000)`).
+
+## src/app/api/analyze/preview/route.ts
+- **Method:** `POST`
+- **Auth:** Wajib login via `auth()`; unauthorized => 401.
+- **Token:** Tidak ada debit token (hanya preview/validasi awal).
+- **Input:** `multipart/form-data` dengan `file: File` (.inp); validasi ekstensi + size (MAX 10MB).
+- **Output:** Sukses: `{ success:true, ...previewPayload }`; Invalid file => 422 `{ success:false, error }`.
+- **Dependensi:** `src/lib/auth-server.ts`, `src/lib/http.ts`, `src/lib/python-api.ts`, `next/server` (`NextResponse`).
+- **Catatan penting:** Proxy ke Python API `/v1/preview` dengan timeout 15s.
+
+## src/app/api/analyze/diameter/route.ts
+- **Method:** `POST`
+- **Auth:** Wajib login via `auth()`; unauthorized => 401.
+- **Token:** Pre-check token balance; cost = `ANALYSIS_TOKEN_COST` (jika tidak bypass admin).
+- **Input:** `multipart/form-data` dengan `file: File` + optional tuning `max_iterations`, `time_budget_s`.
+- **Output:** Sukses: `{ success:true, analysisId, jobId }`; Error: `{ success:false, error }` (termasuk 402 bila token kurang).
+- **DB:** Insert `analyses(kind="diameter")` status `processing`; update status `failed` jika backend gagal/timeout.
+- **Dependensi:** `src/lib/auth-server.ts`, `src/lib/admin.ts`, `src/lib/db`, `src/lib/db/schema`, `src/lib/http.ts`, `src/lib/python-api.ts`, `src/lib/ratelimit.ts`, `src/lib/token-balance.ts`, `src/lib/token-constants.ts`.
+- **Catatan penting:** Proxy ke Python API `/v1/analyze/diameter` dengan timeout 15s.
+
+## src/app/api/analyze/pressure/route.ts
+- **Method:** `POST`
+- **Auth:** Wajib login via `auth()`; unauthorized => 401.
+- **Token:** Pre-check token balance; cost = `PRESSURE_ANALYSIS_TOKEN_COST` (jika tidak bypass admin).
+- **Input:** `multipart/form-data` dengan `file: File`.
+- **Output:** Sukses: `{ success:true, analysisId, jobId }`; Error: `{ success:false, error }` (termasuk 402 bila token kurang).
+- **DB:** Insert `analyses(kind="pressure")` status `processing`; update status `failed` jika backend gagal/timeout.
+- **Dependensi:** `src/lib/auth-server.ts`, `src/lib/admin.ts`, `src/lib/db`, `src/lib/db/schema`, `src/lib/http.ts`, `src/lib/python-api.ts`, `src/lib/ratelimit.ts`, `src/lib/token-balance.ts`, `src/lib/token-constants.ts`.
+- **Catatan penting:** Proxy ke Python API `/v1/analyze/pressure` dengan timeout 15s.
+
+## src/app/api/analyze/add-prv/route.ts
+- **Method:** `POST`
+- **Auth:** Wajib login via `auth()`; unauthorized => 401.
+- **Token:** Pre-check token balance; cost = `FIX_PRESSURE_TOKEN_COST` (jika tidak bypass admin).
+- **Input:** `multipart/form-data` dengan `file: File` + `prvRecommendations` (JSON string, wajib, non-empty array).
+- **Output:** Sukses: `{ success:true, analysisId, jobId }`; Error: `{ success:false, error }` / 422 jika rekomendasi invalid.
+- **DB:** Insert `analyses(kind="add_prv")` status `processing`; update status `failed` jika backend gagal/timeout.
+- **Dependensi:** `src/lib/auth-server.ts`, `src/lib/admin.ts`, `src/lib/db`, `src/lib/db/schema`, `src/lib/http.ts`, `src/lib/python-api.ts`, `src/lib/ratelimit.ts`, `src/lib/token-balance.ts`, `src/lib/token-constants.ts`.
+- **Catatan penting:** Proxy ke Python API `/v1/analyze/add-prv` dengan timeout 15s.
 
 ## src/app/api/fix-pressure/route.ts
 - **Method:** `POST`
@@ -773,6 +860,36 @@
 - **Dipanggil oleh:** Backend Next.js memanggil endpoint Python `/v1/simulations` (lihat `src/app/api/analyze/route.ts` dan `src/app/api/fix-pressure/route.ts`).
 - **Catatan penting:** Hard limits: file max 10MB (check di `do_POST`, [PERLU KONFIRMASI line]), iterations serverless default 15 (line 39) + time budget 20s (line 40); PRV stages loop `for stage in range(1, PRV_MAX_STAGES + 1)` (line 220) dan rerun diameter optimizer dibatasi `min(10, MAX_ITERATIONS_SERVERLESS)` (line 266).
 
+## api/server/handlers/preview.py
+- **Fungsi/class yang diekspor:** `preview_inp()` (+ helper parse section `.inp`)
+- **Tugas:** Parse file `.inp` untuk preview tanpa simulasi (units/headloss, ringkasan counts, daftar node/pipa, warnings).
+- **Dependensi:** `api/epanet/network_io.py` (`InpValidationError`, `load_network`), stdlib (`tempfile`, `pathlib`).
+- **Catatan penting:** Validasi `UNITS=LPS` (raise `InpValidationError` bila bukan LPS).
+
+## api/server/handlers/diameter.py
+- **Fungsi/class yang diekspor:** `analyze_diameter()`
+- **Tugas:** Jalankan optimasi diameter (sim baseline → optimize → sim after) dan return payload ringkasan + tabel pipes/nodes/materials + diameterChanges + remainingErrors.
+- **Dependensi:** `api/epanet/network_io.py`, `api/epanet/simulation.py`, `api/epanet/optimizer.py`, `api/epanet/materials.py`, `api/server/handlers/shared.py` (`_build_remaining_errors`), stdlib (`tempfile`, `time`, `pathlib`).
+- **Catatan penting:** Mengisi `summary.convergenceStatus` berdasarkan snapshots; `diameterChanges` dibangun dari map hasil optimizer.
+
+## api/server/handlers/pressure.py
+- **Fungsi/class yang diekspor:** `analyze_pressure()`
+- **Tugas:** Simulasi jaringan untuk evaluasi tekanan node + generate rekomendasi PRV jika ada P-HIGH; return `prvRecommendation` + remainingErrors.
+- **Dependensi:** `api/epanet/network_io.py`, `api/epanet/simulation.py`, `api/epanet/prv.py` (`analyze_prv_recommendations`, `build_pressure_followup`), `api/server/handlers/shared.py` (`_build_remaining_errors`), stdlib (`tempfile`, `pathlib`).
+- **Catatan penting:** Node synthetic `J_PRV_*` dikecualikan dari output; `engineUsed` ditentukan dari audit unit (`_unit_audit`).
+
+## api/server/handlers/add_prv.py
+- **Fungsi/class yang diekspor:** `add_prv()`
+- **Tugas:** Terapkan PRV berdasarkan rekomendasi (`apply_prvs`) + fine-tune setting (`fine_tune_prvs`), lalu simulasi ulang dan return payload node pressures + remainingErrors + log PRV terpasang.
+- **Dependensi:** `api/epanet/network_io.py`, `api/epanet/simulation.py`, `api/epanet/prv.py` (`apply_prvs`, `fine_tune_prvs`), `api/server/handlers/shared.py` (`_build_remaining_errors`), stdlib (`tempfile`, `pathlib`).
+- **Catatan penting:** Raise `ValueError` jika `prv_recommendations` kosong; output berisi `prvInstalled` untuk UI/download.
+
+## api/server/handlers/shared.py
+- **Fungsi/class yang diekspor:** `_build_remaining_errors()` (internal helper)
+- **Tugas:** Normalisasi list `violations` (issue/element/value) menjadi payload UI `remainingErrors` lengkap dengan `unit`, `explanation`, `suggestion`.
+- **Dependensi:** (tidak ada import internal)
+- **Catatan penting:** Mapping penjelasan berbasis code issue (P-NEG/P-LOW/P-HIGH/V-HIGH/V-LOW/HL-HIGH/HL-SMALL).
+
 ## api/epanet/__init__.py
 - **Fungsi/class yang diekspor:** (tidak ada; hanya marker package)
 - **Tugas:** Menandai folder `epanet` sebagai package.
@@ -847,7 +964,23 @@
   - `build_pressure_followup` -> dict status + remaining nodes + recommendations/actions
 - **Library eksternal:** `wntr`, stdlib (`collections.deque`, `dataclasses`, `typing`)
 - **Dipanggil oleh:** `api/analyze_python.py` (line 160–163, 187, 237, 253, 289, 305).
+- **Catatan penting:** "File ini sekarang hanya re-export dari prv_analysis.py dan prv_apply.py. Semua logika sudah dipindah ke ketiga file tersebut."
 - **Catatan penting:** Feasibility setting berbasis static head banding elevasi (fungsi `_feasible_setting`); PRV setting di-clamp >=0; synthetic nodes `J_PRV_*` dipakai untuk modeling upstream/downstream.
+
+## api/epanet/prv_helpers.py
+- **Fungsi/class yang diekspor:** (helper internal) `_directed_edges_from_flow()`, `_pipe_dir()`, `_bfs_reachable()`, `_node_elev()`, `_feasible_setting()`, `_restrict_to_band()`, `_midpoint_coords()`, `_node_xy()`, `_polyline_len()`, `_split_polyline_at_fraction()`, `_current_setting()`, `_is_synthetic_prv_node()`, `_normalize_prv_targets()`, `_discover_prv_zone_targets()`
+- **Tugas:** Kumpulan helper private top-level untuk modul PRV (graph flow, elevasi/feasibility band, geometri split pipe, discovery zona tuning).
+- **Catatan penting:** Helper tetap private (prefix `_`) dan diimpor oleh `prv_analysis.py` dan `prv_apply.py`.
+
+## api/epanet/prv_analysis.py
+- **Fungsi/class yang diekspor:** `PrvRecommendation` (dataclass), `analyze_prv_recommendations()`, `build_pressure_followup()`
+- **Tugas:** Modul analisis PRV: rekomendasi PRV (Modul 3A) + follow-up status/rekomendasi setelah fix.
+- **Catatan penting:** `build_pressure_followup()` memanggil `analyze_prv_recommendations()`; helper lokal di dalam fungsi tetap ada (mis. `_collect()`).
+
+## api/epanet/prv_apply.py
+- **Fungsi/class yang diekspor:** `apply_prvs()`, `fine_tune_prvs()`
+- **Tugas:** Modul apply PRV: sisip PRV ke network (Modul 3B) + tuning iteratif setting PRV per zona.
+- **Catatan penting:** `fine_tune_prvs()` menyimpan helper lokal `_emit()` dan `_zone_pressures()` di dalam fungsi.
 
 ## api/epanet/reporter.py
 - **Fungsi/class yang diekspor:** `export_markdown_report()` (+ helper tabel markdown)
@@ -890,7 +1023,7 @@ analyze_python.py
 | `RootLayout` | `src/app/layout.tsx` | Root layout + inject Midtrans Snap.js bila provider midtrans |
 | `HomePage` | `src/app/page.tsx` | Landing page + CTA routing login/dashboard |
 | `UploadPage` | `src/app/upload/page.tsx` | Flow upload → analisis → polling → hasil/error |
-| `ResultsPanel` | `src/components/sections/ResultsPanel.tsx` | UI hasil analisis + export + PRV/fix pressure |
+| `ResultsPanel` | `src/components/results/ResultsPanel.tsx` | UI hasil analisis + export + PRV/fix pressure |
 | `CheckoutClient` | `src/app/checkout/CheckoutClient.tsx` | Checkout token + transaksi + Snap.js payment |
 | `Navbar` | `src/components/layout/Navbar.tsx` | Nav + token balance + buka modal riwayat/beli token |
 | `ToastProvider` / `useToast()` | `src/components/providers/ToastProvider.tsx` | Toast context untuk notif UI |

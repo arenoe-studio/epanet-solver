@@ -1,10 +1,42 @@
 export type AppState =
-  | "hero"
   | "upload"
+  | "previewing"
   | "file-selected"
-  | "processing"
+  | "processing-diameter"
+  | "processing-pressure"
+  | "processing-add-prv"
   | "results"
   | "error";
+
+export type PreviewResult = {
+  filename: string;
+  networkInfo: {
+    units: string;
+    headlossFormula: string;
+    junctionCount: number;
+    pipeCount: number;
+    reservoirCount: number;
+    tankCount: number;
+    pumpCount: number;
+    valveCount: number;
+    totalDemandLps: number;
+  };
+  pipes: Array<{
+    id: string;
+    diameterMm: number;
+    lengthM: number;
+    roughness: number;
+    status: string;
+  }>;
+  nodes: Array<{
+    id: string;
+    elevationM: number;
+    demandLps: number;
+  }>;
+  warnings: string[];
+};
+
+export type AnalysisKind = "diameter" | "pressure" | "add_prv";
 
 export type User = {
   id: string;
@@ -81,6 +113,21 @@ export type AnalysisResult = {
   sourceFileName?: string;
   sourceFileBase64?: string;
   sourceFileUrl?: string;
+  kind?: AnalysisKind;
+  engineUsed?: string;
+  addPrvAvailable?: boolean;
+  prvRecommendation?: {
+    needed: boolean;
+    recommendations: Array<{
+      pipeId: string;
+      upstreamNode: string;
+      downstreamNode: string;
+      settingM: number;
+      coveredNodes: string[];
+      estimatedPressureAfter: Record<string, number>;
+    }>;
+    unresolvedNodes: string[];
+  } | null;
   summary: {
     iterations: number;
     issuesFound: number;

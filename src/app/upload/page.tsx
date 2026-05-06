@@ -7,14 +7,37 @@ import Link from "next/link";
 import { FileSelectedCard } from "@/components/sections/FileSelectedCard";
 import { ProcessingState } from "@/components/sections/ProcessingState";
 import { RecentAnalysesList } from "@/components/sections/RecentAnalysesList";
-import { ResultsPanel } from "@/components/sections/ResultsPanel";
+import { ResultsPanel } from "@/components/results/ResultsPanel";
 import { UploadZone } from "@/components/sections/UploadZone";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { useTokenBalance } from "@/hooks/useTokenBalance";
 import { useToast } from "@/components/providers/ToastProvider";
-import { ANALYSIS_TOKEN_COST, INITIAL_FREE_TOKENS } from "@/lib/token-constants";
+import {
+  ANALYSIS_TOKEN_COST,
+  INITIAL_FREE_TOKENS,
+  PRESSURE_ANALYSIS_TOKEN_COST
+} from "@/lib/token-constants";
 import { openBuyTokenModal } from "@/lib/ui-events";
 import type { AnalysisResult, AppState } from "@/types";
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function getString(obj: Record<string, unknown>, key: string): string | undefined {
+  const v = obj[key];
+  return typeof v === "string" ? v : undefined;
+}
+
+function getNumber(obj: Record<string, unknown>, key: string): number | undefined {
+  const v = obj[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function getBoolean(obj: Record<string, unknown>, key: string): boolean | undefined {
+  const v = obj[key];
+  return typeof v === "boolean" ? v : undefined;
+}
 
 export default function UploadPage() {
   const [state, setState] = useState<AppState>("upload");
@@ -30,15 +53,24 @@ export default function UploadPage() {
   const { status } = useSession();
   const isLoggedIn = status === "authenticated";
 
-  const { counts, isLoading: previewLoading, error: previewError } =
+  const { preview, isLoading: previewLoading, error: previewError } =
     useFilePreview(selectedFile);
   const { balance: tokenBalance, refresh: refreshBalance } =
     useTokenBalance(isLoggedIn);
   const { push } = useToast();
 
-  const canRunAnalysis = useMemo(() => {
+  const canRunDiameter = useMemo(() => {
     return tokenBalance === null ? true : tokenBalance >= ANALYSIS_TOKEN_COST;
   }, [tokenBalance]);
+  const canRunPressure = useMemo(() => {
+    return tokenBalance === null ? true : tokenBalance >= PRESSURE_ANALYSIS_TOKEN_COST;
+  }, [tokenBalance]);
+  const canRunAnyAnalysis = canRunDiameter || canRunPressure;
+
+  const isProcessing =
+    state === "processing-diameter" ||
+    state === "processing-pressure" ||
+    state === "processing-add-prv";
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -104,46 +136,49 @@ export default function UploadPage() {
       const statusRes = await fetch(`/api/simulations/${jobId}?analysisId=${analysisId}`, {
         signal: aborter?.signal
       });
-      const statusJson = (await statusRes.json()) as any;
+      const statusJson: unknown = await statusRes.json();
+      const statusObj = isRecord(statusJson) ? statusJson : {};
 
       if (!statusRes.ok) {
-        throw new Error(statusJson?.error ?? "System error");
+        throw new Error(getString(statusObj, "error") ?? "System error");
       }
 
-      if (statusJson?.status === "failed") {
-        const err = statusJson?.error === "MAINTENANCE"
+      if (getString(statusObj, "status") === "failed") {
+        const err = getString(statusObj, "error") === "MAINTENANCE"
           ? "Solver sedang maintenance. Silakan coba lagi beberapa saat."
-          : statusJson?.error ?? "System error";
+          : getString(statusObj, "error") ?? "System error";
         throw new Error(err);
       }
 
-      if (statusJson?.status === "succeeded") {
+      if (getString(statusObj, "status") === "succeeded") {
         const res = await fetch(`/api/simulations/${jobId}/result?analysisId=${analysisId}`, {
           signal: aborter?.signal
         });
-        const json = (await res.json()) as any;
-        if (!res.ok || !json?.success) {
-          const traceId = json?.traceId ?? res.headers.get("x-trace-id");
-          const errorCode = json?.errorCode;
-          const msg = json?.error ?? "Terjadi kesalahan sistem.";
+        const json: unknown = await res.json();
+        const obj = isRecord(json) ? json : {};
+        if (!res.ok || getBoolean(obj, "success") !== true) {
+          const traceId = getString(obj, "traceId") ?? res.headers.get("x-trace-id");
+          const errorCode = obj["errorCode"];
+          const msg = getString(obj, "error") ?? "Terjadi kesalahan sistem.";
           const suffixParts = [
             errorCode ? `Code: ${String(errorCode)}` : null,
             traceId ? `Trace: ${String(traceId)}` : null
           ].filter(Boolean);
           throw new Error(suffixParts.length ? `${msg} (${suffixParts.join(", ")})` : msg);
         }
-        return json;
+        return obj;
       }
 
       await sleep(1500);
     }
   }
 
-  async function runAnalysis() {
+  async function runAnalysis(kind: "diameter" | "pressure") {
     if (!selectedFile) return;
     if (isAnalyzing) return;
     if (isFixingPressure) return;
-    if (!canRunAnalysis) {
+    const canRun = kind === "diameter" ? canRunDiameter : canRunPressure;
+    if (!canRun) {
       openBuyTokenModal();
       push({ title: "Saldo token tidak cukup", variant: "error" });
       return;
@@ -151,14 +186,17 @@ export default function UploadPage() {
 
     setErrorMessage(null);
     setIsAnalyzing(true);
-    setState("processing");
+    setState(kind === "diameter" ? "processing-diameter" : "processing-pressure");
 
     const fd = new FormData();
     fd.set("file", selectedFile);
 
     try {
-      const res = await fetch("/api/analyze", { method: "POST", body: fd });
-      const json = (await res.json()) as any;
+      const endpoint =
+        kind === "diameter" ? "/api/analyze/diameter" : "/api/analyze/pressure";
+      const res = await fetch(endpoint, { method: "POST", body: fd });
+      const json: unknown = await res.json();
+      const obj = isRecord(json) ? json : {};
 
       if (res.status === 402) {
         setIsAnalyzing(false);
@@ -169,8 +207,8 @@ export default function UploadPage() {
         return;
       }
 
-      if (!res.ok || json?.success !== true) {
-        const msg = json?.error ?? "Terjadi kesalahan sistem.";
+      if (!res.ok || getBoolean(obj, "success") !== true) {
+        const msg = getString(obj, "error") ?? "Terjadi kesalahan sistem.";
         setErrorMessage(msg);
         setIsAnalyzing(false);
         setState("error");
@@ -185,8 +223,8 @@ export default function UploadPage() {
         return;
       }
 
-      const jobId = String(json.jobId || "");
-      const analysisId = Number(json.analysisId);
+      const jobId = getString(obj, "jobId") ?? "";
+      const analysisId = getNumber(obj, "analysisId") ?? NaN;
       if (!jobId || !Number.isFinite(analysisId)) {
         throw new Error("System error");
       }
@@ -195,19 +233,25 @@ export default function UploadPage() {
       pollAbortRef.current = new AbortController();
 
       const done = await waitForBackendJob(jobId, analysisId);
+      const doneSummary = isRecord(done["summary"]) ? (done["summary"] as AnalysisResult["summary"]) : null;
+      const doneFiles = isRecord(done["files"]) ? (done["files"] as AnalysisResult["files"]) : null;
+      if (!doneSummary || !doneFiles) throw new Error("System error");
       const nextResult: AnalysisResult = {
-        analysisId: done.analysisId,
-        fileName: done.summary?.fileName ?? selectedFile.name,
-        summary: done.summary,
-        prv: done.prv,
-        files: done.files,
-        filesV1: done.filesV1,
-        filesFinal: done.filesFinal ?? null,
-        nodes: done.nodes ?? [],
-        pipes: done.pipes ?? [],
-        materials: done.materials ?? [],
-        warnings: done.warnings ?? [],
-        networkInfo: done.networkInfo
+        analysisId,
+        fileName: selectedFile.name,
+        kind,
+        engineUsed: typeof done["engineUsed"] === "string" ? done["engineUsed"] : undefined,
+        prvRecommendation: (done["prvRecommendation"] as AnalysisResult["prvRecommendation"]) ?? undefined,
+        summary: doneSummary,
+        prv: (done["prv"] as AnalysisResult["prv"]) ?? undefined,
+        files: doneFiles,
+        filesV1: (done["filesV1"] as AnalysisResult["filesV1"]) ?? undefined,
+        filesFinal: (done["filesFinal"] as AnalysisResult["filesFinal"]) ?? null,
+        nodes: Array.isArray(done["nodes"]) ? (done["nodes"] as AnalysisResult["nodes"]) : [],
+        pipes: Array.isArray(done["pipes"]) ? (done["pipes"] as AnalysisResult["pipes"]) : [],
+        materials: Array.isArray(done["materials"]) ? (done["materials"] as AnalysisResult["materials"]) : [],
+        warnings: Array.isArray(done["warnings"]) ? (done["warnings"] as AnalysisResult["warnings"]) : [],
+        networkInfo: (done["networkInfo"] as AnalysisResult["networkInfo"]) ?? undefined
       };
 
       setResult(nextResult);
@@ -275,7 +319,7 @@ export default function UploadPage() {
     }
   }
 
-  async function runFixPressure() {
+  async function runAddPrv() {
     if (!selectedFile) {
       push({
         title: "Upload file terlebih dahulu",
@@ -289,7 +333,7 @@ export default function UploadPage() {
     if (isAnalyzing) return;
     if (isFixingPressure) return;
 
-    if (!canRunAnalysis) {
+    if (!canRunAnyAnalysis) {
       openBuyTokenModal();
       push({ title: "Saldo token tidak cukup", variant: "error" });
       return;
@@ -297,15 +341,20 @@ export default function UploadPage() {
 
     setErrorMessage(null);
     setIsFixingPressure(true);
-    setState("processing");
+    setState("processing-add-prv");
 
     const fd = new FormData();
     fd.set("file", selectedFile);
     fd.set("parentAnalysisId", String(result.analysisId));
+    fd.set(
+      "prvRecommendations",
+      JSON.stringify(result.prvRecommendation?.recommendations ?? [])
+    );
 
     try {
-      const res = await fetch("/api/fix-pressure", { method: "POST", body: fd });
-      const json = (await res.json()) as any;
+      const res = await fetch("/api/analyze/add-prv", { method: "POST", body: fd });
+      const json: unknown = await res.json();
+      const obj = isRecord(json) ? json : {};
 
       if (res.status === 402) {
         setIsFixingPressure(false);
@@ -316,8 +365,8 @@ export default function UploadPage() {
         return;
       }
 
-      if (!res.ok || json?.success !== true) {
-        const msg = json?.error ?? "Terjadi kesalahan sistem.";
+      if (!res.ok || getBoolean(obj, "success") !== true) {
+        const msg = getString(obj, "error") ?? "Terjadi kesalahan sistem.";
         setErrorMessage(msg);
         setIsFixingPressure(false);
         setState("results");
@@ -329,8 +378,8 @@ export default function UploadPage() {
         return;
       }
 
-      const jobId = String(json.jobId || "");
-      const analysisId = Number(json.analysisId);
+      const jobId = getString(obj, "jobId") ?? "";
+      const analysisId = getNumber(obj, "analysisId") ?? NaN;
       if (!jobId || !Number.isFinite(analysisId)) {
         throw new Error("System error");
       }
@@ -339,19 +388,24 @@ export default function UploadPage() {
       pollAbortRef.current = new AbortController();
 
       const done = await waitForBackendJob(jobId, analysisId);
+      const doneSummary = isRecord(done["summary"]) ? (done["summary"] as AnalysisResult["summary"]) : null;
+      const doneFiles = isRecord(done["files"]) ? (done["files"] as AnalysisResult["files"]) : null;
+      if (!doneSummary || !doneFiles) throw new Error("System error");
       const updated: AnalysisResult = {
-        analysisId: done.analysisId,
-        fileName: done.summary?.fileName ?? selectedFile.name,
-        summary: done.summary,
-        prv: done.prv,
-        files: done.files,
-        filesV1: done.filesV1,
-        filesFinal: done.filesFinal ?? null,
-        nodes: done.nodes ?? [],
-        pipes: done.pipes ?? [],
-        materials: done.materials ?? [],
-        warnings: done.warnings ?? [],
-        networkInfo: done.networkInfo
+        analysisId,
+        fileName: selectedFile.name,
+        kind: "add_prv",
+        engineUsed: typeof done["engineUsed"] === "string" ? done["engineUsed"] : undefined,
+        summary: doneSummary,
+        prv: (done["prv"] as AnalysisResult["prv"]) ?? undefined,
+        files: doneFiles,
+        filesV1: (done["filesV1"] as AnalysisResult["filesV1"]) ?? undefined,
+        filesFinal: (done["filesFinal"] as AnalysisResult["filesFinal"]) ?? null,
+        nodes: Array.isArray(done["nodes"]) ? (done["nodes"] as AnalysisResult["nodes"]) : [],
+        pipes: Array.isArray(done["pipes"]) ? (done["pipes"] as AnalysisResult["pipes"]) : [],
+        materials: Array.isArray(done["materials"]) ? (done["materials"] as AnalysisResult["materials"]) : [],
+        warnings: Array.isArray(done["warnings"]) ? (done["warnings"] as AnalysisResult["warnings"]) : [],
+        networkInfo: (done["networkInfo"] as AnalysisResult["networkInfo"]) ?? undefined
       };
 
       setResult(updated);
@@ -430,7 +484,7 @@ export default function UploadPage() {
         <div className="space-y-10">
           <FileSelectedCard
             file={selectedFile}
-            previewCounts={counts}
+            preview={preview}
             previewLoading={previewLoading}
             previewError={previewError}
             tokenBalance={tokenBalance}
@@ -439,15 +493,25 @@ export default function UploadPage() {
               setSelectedFile(null);
               setState("upload");
             }}
-            onRunAnalysis={runAnalysis}
+            onRunDiameter={() => runAnalysis("diameter")}
+            onRunPressure={() => runAnalysis("pressure")}
           />
         </div>
       ) : null}
 
-      {state === "processing" ? (
+      {isProcessing ? (
         <ProcessingState
           isDone={!isAnalyzing && !isFixingPressure}
           isError={false}
+          kind={
+            state === "processing-diameter"
+              ? "diameter"
+              : state === "processing-pressure"
+                ? "pressure"
+                : state === "processing-add-prv"
+                  ? "add_prv"
+                  : undefined
+          }
           onCancel={() => {
             pollAbortRef.current?.abort();
             setIsAnalyzing(false);
@@ -472,8 +536,8 @@ export default function UploadPage() {
               setResult(null);
               setState("upload");
             }}
-            onFixPressure={runFixPressure}
-            isFixingPressure={isFixingPressure}
+            onAddPrv={runAddPrv}
+            isAddingPrv={isFixingPressure}
             tokenBalance={tokenBalance}
           />
         ) : null
@@ -509,7 +573,7 @@ export default function UploadPage() {
             >
               Kembali ke File
             </button>
-            {!canRunAnalysis ? (
+            {!canRunAnyAnalysis ? (
               <button
                 className="inline-flex h-9 items-center rounded-full border border-border-lavender bg-white px-5 text-sm font-semibold text-near-black transition hover:bg-cloud-gray active:scale-[0.98]"
                 onClick={() => openBuyTokenModal()}

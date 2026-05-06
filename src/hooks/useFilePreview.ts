@@ -1,85 +1,86 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PreviewResult } from "@/types";
 
-export type InpPreviewCounts = {
-  junctions: number;
-  pipes: number;
-  reservoirs: number;
-  tanks: number;
-};
-
-export function parseInpPreview(text: string): InpPreviewCounts {
-  const sectionMap: Record<string, keyof InpPreviewCounts> = {
-    "[JUNCTIONS]": "junctions",
-    "[PIPES]": "pipes",
-    "[RESERVOIRS]": "reservoirs",
-    "[TANKS]": "tanks"
-  };
-
-  const counts: InpPreviewCounts = {
-    junctions: 0,
-    pipes: 0,
-    reservoirs: 0,
-    tanks: 0
-  };
-
-  let section = "";
-  for (const line of text.split("\n")) {
-    const trimmed = line.trim();
-    const upper = trimmed.toUpperCase();
-    if (!upper) continue;
-    if (upper.startsWith("[")) {
-      section = upper.split(/\s/)[0] ?? "";
-      continue;
-    }
-    if (trimmed.startsWith(";")) continue;
-
-    const key = sectionMap[section];
-    if (key) counts[key] += 1;
-  }
-
-  return counts;
-}
+type PreviewStatus = "idle" | "loading" | "success" | "error";
 
 export function useFilePreview(file: File | null) {
-  const [counts, setCounts] = useState<InpPreviewCounts | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const [status, setStatus] = useState<PreviewStatus>("idle");
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const reset = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStatus("idle");
+    setPreview(null);
+    setError(null);
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
+    abortRef.current?.abort();
+    abortRef.current = null;
+
     if (!file) {
-      setCounts(null);
-      setError(null);
-      setIsLoading(false);
+      reset();
       return;
     }
 
-    setIsLoading(true);
+    const aborter = new AbortController();
+    abortRef.current = aborter;
+
+    setStatus("loading");
+    setPreview(null);
     setError(null);
 
-    file
-      .text()
-      .then((text) => {
-        if (cancelled) return;
-        setCounts(parseInpPreview(text));
+    const fd = new FormData();
+    fd.set("file", file);
+
+    fetch("/api/analyze/preview", {
+      method: "POST",
+      body: fd,
+      signal: aborter.signal
+    })
+      .then(async (res) => {
+        if (aborter.signal.aborted) return;
+
+        if (res.status === 422) {
+          let msg: string | null = null;
+          try {
+            const json = (await res.json()) as any;
+            msg = typeof json?.error === "string" ? json.error : null;
+          } catch {
+            // ignore
+          }
+          setStatus("error");
+          setError(msg ?? "Gagal membaca file");
+          return;
+        }
+
+        if (!res.ok) {
+          setStatus("error");
+          setError("Gagal membaca file");
+          return;
+        }
+
+        const data = (await res.json()) as PreviewResult;
+        setPreview(data);
+        setStatus("success");
       })
-      .catch(() => {
-        if (cancelled) return;
-        setError("Gagal membaca file untuk preview.");
-        setCounts(null);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoading(false);
+      .catch((e) => {
+        if (aborter.signal.aborted) return;
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setStatus("error");
+        setError("Gagal membaca file");
       });
 
     return () => {
-      cancelled = true;
+      aborter.abort();
     };
-  }, [file]);
+  }, [file, reset]);
 
-  return { counts, isLoading, error };
+  return { preview, isLoading: status === "loading", error, reset };
 }
-

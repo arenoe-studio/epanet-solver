@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import type { AnalysisKind } from "@/types";
 
 type ProcessingStateProps = {
   isDone: boolean;
   isError: boolean;
+  kind?: AnalysisKind;
   onCancel: () => void;
 };
 
@@ -19,9 +21,18 @@ const PROCESSING_STEPS: Array<{ label: string; durationMs: number | null }> = [
   { label: "Validasi hasil akhir", durationMs: 1000 }
 ];
 
-export function ProcessingState({ isDone, isError, onCancel }: ProcessingStateProps) {
+export function ProcessingState({ isDone, isError, kind, onCancel }: ProcessingStateProps) {
   const [progress, setProgress] = useState(2);
   const [activeIdx, setActiveIdx] = useState(0);
+
+  const title =
+    kind === "diameter"
+      ? "Mengoptimasi diameter pipa..."
+      : kind === "pressure"
+        ? "Menganalisis tekanan jaringan..."
+        : kind === "add_prv"
+          ? "Memasang PRV otomatis..."
+          : "Memproses file…";
 
   useEffect(() => {
     if (isError) return;
@@ -66,7 +77,7 @@ export function ProcessingState({ isDone, isError, onCancel }: ProcessingStatePr
     <div className="mx-auto max-w-xl space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-[-0.03em] text-expo-black">
-          Memproses file…
+          {title}
         </h2>
         <p className="mt-1 text-sm text-slate-gray">
           Proses berjalan. Ini bisa memakan waktu beberapa detik.
