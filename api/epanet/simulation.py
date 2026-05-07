@@ -297,11 +297,14 @@ def _run_simulation_epyt(wn: wntr.network.WaterNetworkModel) -> dict:
 
         return _attach_unit_audit(
             {
-            "pressure": pressure,
-            "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
-            "headloss": pd.Series(hl_per_km),
-            "flow": flow.reindex(wn.pipe_name_list).fillna(0),
-            "head": head,
+                "_engine": "epyt",
+                "_simulator": "epyt",
+                "engineUsed": "epyt",
+                "pressure": pressure,
+                "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
+                "headloss": pd.Series(hl_per_km),
+                "flow": flow.reindex(wn.pipe_name_list).fillna(0),
+                "head": head,
             },
             audit,
         )
@@ -333,7 +336,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     # PRV/valves are accurately supported by EPANET engine. WNTRSimulator can
     # silently ignore or approximate some controls/valves, causing PRV installs
     # to have no effect in results.
-    simulator = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "auto").strip().lower()
+    desired = (os.environ.get("EPANET_SOLVER_SIMULATOR") or "auto").strip().lower()
     require_epanet = (os.environ.get("EPANET_SOLVER_REQUIRE_EPANET") or "1").strip().lower() in (
         "1",
         "true",
@@ -342,42 +345,61 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
         "on",
     )
 
-    if simulator == "wntr" and require_epanet:
+    if desired == "wntr" and require_epanet:
         raise EpanetToolkitUnavailable(
             "Mode simulator 'wntr' dinonaktifkan karena EPANET Toolkit wajib. "
             "Set EPANET_SOLVER_REQUIRE_EPANET=0 untuk mengizinkan fallback WNTR."
         )
 
-    if simulator == "epyt":
+    results = None
+    actual_engine = desired
+
+    if desired == "epyt":
         try:
             return _run_simulation_epyt(wn)
         except EpanetToolkitUnavailable:
             if require_epanet:
                 raise
+            actual_engine = "wntr"
             results = wntr.sim.WNTRSimulator(wn).run_sim()
-
-    if simulator == "epanet":
-        with _EPANET_TOOLKIT_LOCK:
-            results = wntr.sim.EpanetSimulator(wn).run_sim()
-    elif simulator == "wntr":
+    elif desired == "epanet":
+        try:
+            with _EPANET_TOOLKIT_LOCK:
+                results = wntr.sim.EpanetSimulator(wn).run_sim()
+            actual_engine = "epanet"
+        except Exception as e:
+            if require_epanet:
+                raise EpanetToolkitUnavailable(
+                    "EPANET Toolkit tidak tersedia / gagal dijalankan."
+                ) from e
+            actual_engine = "wntr"
+            results = wntr.sim.WNTRSimulator(wn).run_sim()
+    elif desired == "wntr":
+        actual_engine = "wntr"
         results = wntr.sim.WNTRSimulator(wn).run_sim()
     else:  # auto
         try:
             with _EPANET_TOOLKIT_LOCK:
                 results = wntr.sim.EpanetSimulator(wn).run_sim()
+            actual_engine = "epanet"
         except Exception:
             try:
                 return _run_simulation_epyt(wn)
             except EpanetToolkitUnavailable:
                 if require_epanet:
                     raise
+                actual_engine = "wntr"
                 results = wntr.sim.WNTRSimulator(wn).run_sim()
             except Exception as e:
                 if require_epanet:
                     raise EpanetToolkitUnavailable(
                         "EPANET Toolkit tidak tersedia / gagal dijalankan."
                     ) from e
+                actual_engine = "wntr"
                 results = wntr.sim.WNTRSimulator(wn).run_sim()
+
+    if results is None:
+        raise RuntimeError("Gagal menjalankan simulasi.")
 
     if results.node["pressure"].empty:
         raise RuntimeError(
@@ -397,7 +419,7 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
     pressure = _pressure_from_head_m(wn, head)
     pressure = pressure[pressure.index.isin(wn.junction_name_list)]
 
-    audit: dict = {"source": str(simulator), "inpUnits": _epanet_inp_units(wn), "warnings": []}
+    audit: dict = {"source": str(actual_engine), "inpUnits": _epanet_inp_units(wn), "warnings": []}
     med_abs = _median_abs_diff(
         pressure_raw.reindex(wn.junction_name_list),
         pressure.reindex(wn.junction_name_list),
@@ -418,11 +440,14 @@ def run_simulation(wn: wntr.network.WaterNetworkModel) -> dict:
 
     return _attach_unit_audit(
         {
-        "pressure": pressure,
-        "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
-        "headloss": pd.Series(hl_per_km),
-        "flow":     flow.reindex(wn.pipe_name_list).fillna(0),
-        "head":     head,
+            "_engine": str(actual_engine),
+            "_simulator": str(actual_engine),
+            "engineUsed": str(actual_engine),
+            "pressure": pressure,
+            "velocity": velocity.reindex(wn.pipe_name_list).fillna(0),
+            "headloss": pd.Series(hl_per_km),
+            "flow": flow.reindex(wn.pipe_name_list).fillna(0),
+            "head": head,
         },
         audit,
     )

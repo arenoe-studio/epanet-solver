@@ -30,11 +30,6 @@ export function ResultsPanel({
   isAddingPrv: boolean;
   tokenBalance?: number | null;
 }) {
-  console.log("[ResultsPanel] result keys:", Object.keys(result));
-  console.log("[ResultsPanel] pipes:", result.pipes?.slice(0, 2));
-  console.log("[ResultsPanel] remainingErrors:", result.remainingErrors?.slice(0, 2));
-  console.log("[ResultsPanel] nodes:", result.nodes?.slice(0, 2));
-
   type Tab = "pipes" | "nodes" | "materials";
   const kind: AnalysisKind = result.kind ?? "diameter";
   const [activeTab, setActiveTab] = useState<Tab>("pipes");

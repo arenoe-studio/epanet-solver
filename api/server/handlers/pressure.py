@@ -60,7 +60,9 @@ def _write_temp_inp(inp_bytes: bytes) -> Path:
 def _engine_used(sim_results: dict) -> str:
     audit = (sim_results or {}).get("_unit_audit") or {}
     src = str(audit.get("source") or "").strip().lower()
-    return "epyt" if src == "epyt" else "wntr"
+    if src in {"epyt", "epanet", "wntr"}:
+        return src
+    return "wntr"
 
 
 def analyze_pressure(inp_bytes: bytes, filename: str) -> dict:
@@ -154,4 +156,3 @@ def analyze_pressure(inp_bytes: bytes, filename: str) -> dict:
         "warnings": warnings,
         "addPrvAvailable": bool(add_prv_available),
     }
-

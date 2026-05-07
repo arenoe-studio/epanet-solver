@@ -60,7 +60,9 @@ def _write_temp_inp(inp_bytes: bytes) -> Path:
 def _engine_used(sim_results: dict) -> str:
     audit = (sim_results or {}).get("_unit_audit") or {}
     src = str(audit.get("source") or "").strip().lower()
-    return "epyt" if src == "epyt" else "wntr"
+    if src in {"epyt", "epanet", "wntr"}:
+        return src
+    return "wntr"
 
 
 def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) -> dict:
@@ -147,4 +149,3 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
         "warnings": warnings,
         "downloadAvailable": True,
     }
-
