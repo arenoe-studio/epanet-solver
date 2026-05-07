@@ -27,6 +27,27 @@ class PrvRecommendation:
     setting_head_m: float
     elevation_max_m: float
 
+    # NOTE:
+    # In some deployed environments we've observed `TypeError: PrvRecommendation() takes no arguments`,
+    # which implies `__init__` was not generated (or was stripped) and the class fell back to
+    # `object.__init__`. Defining an explicit initializer hardens this codepath and keeps the
+    # runtime behavior stable regardless of dataclass codegen.
+    def __init__(
+        self,
+        pipe_id: str,
+        upstream_node: str,
+        downstream_node: str,
+        covered_nodes: list[str],
+        setting_head_m: float,
+        elevation_max_m: float,
+    ) -> None:
+        self.pipe_id = pipe_id
+        self.upstream_node = upstream_node
+        self.downstream_node = downstream_node
+        self.covered_nodes = covered_nodes
+        self.setting_head_m = setting_head_m
+        self.elevation_max_m = elevation_max_m
+
 
 def analyze_prv_recommendations(
     wn: wntr.network.WaterNetworkModel,
