@@ -257,8 +257,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     if (isNewFormat) {
       return {
         id: String(raw?.id ?? ""),
-        fromNode: null,
-        toNode: null,
+        fromNode: typeof raw?.fromNode === "string" && raw.fromNode ? raw.fromNode : null,
+        toNode: typeof raw?.toNode === "string" && raw.toNode ? raw.toNode : null,
         length: toFiniteNumber(raw?.lengthM),
         roughnessC: toFiniteNumber(raw?.roughness),
         diameterMm: toFiniteNumber(raw?.diameterMm),

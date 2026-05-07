@@ -170,9 +170,14 @@ def analyze_diameter(
     for pid in getattr(wn_opt, "pipe_name_list", []) or []:
         pipe = wn_opt.get_link(pid)
         velocity_status, headloss_status, v, hl = _status_from_pipe(final_eval, pid)
+        roughness_val = float(getattr(pipe, "roughness", 0.0) or 0.0)
         pipes_out.append(
             {
                 "id": str(pid),
+                "fromNode": str(getattr(pipe, "start_node_name", "") or ""),
+                "toNode": str(getattr(pipe, "end_node_name", "") or ""),
+                "lengthM": round(float(getattr(pipe, "length", 0.0) or 0.0), 1),
+                "roughness": roughness_val if roughness_val > 0 else None,
                 "diameterMm": round(float(getattr(pipe, "diameter", 0.0)) * 1000.0, 3),
                 "velocityMs": round(float(v), 3),
                 "headlossPerKm": round(float(hl), 3),

@@ -31,7 +31,7 @@ def apply_prvs(
 
     for idx, rec in enumerate(recommendations, 1):
         pipe_id = rec["pipeId"]
-        setting = float(rec["settingHeadM"])
+        setting = float(rec.get("settingHeadM") or rec.get("settingM") or 0.0)
         pipe = wn.get_link(pipe_id)
         n1, n2 = pipe.start_node_name, pipe.end_node_name
 
