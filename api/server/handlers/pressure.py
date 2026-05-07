@@ -145,11 +145,23 @@ def analyze_pressure(inp_bytes: bytes, filename: str) -> dict:
         }
 
     remaining_errors = _build_remaining_errors(list(ev.get("violations", []) or []))
+    issue_count = len(remaining_errors)
 
     return {
         "success": True,
         "filename": str(filename or "network.inp"),
         "engineUsed": engine_used,
+        "summary": {
+            "iterations": 1,
+            "issuesFound": issue_count,
+            "issuesFixed": 0,
+            "remainingIssues": issue_count,
+            "nodes": len(nodes_out),
+            "pipes": len(getattr(wn, "pipe_name_list", []) or []),
+            "fileName": str(filename or "network.inp"),
+            "action": "analyze",
+            "pressureOptimizationAvailable": False,
+        },
         "nodes": nodes_out,
         "prvRecommendation": prv_reco_out,
         "remainingErrors": remaining_errors,

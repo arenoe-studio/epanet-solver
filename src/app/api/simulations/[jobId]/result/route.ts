@@ -116,6 +116,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       return jsonError("Invalid backend response", 502, "E_INVALID_BACKEND_JSON");
     }
 
+    if (analysis.kind === "pressure" && !("summary" in pythonJson)) {
+      const pressureNodes = Array.isArray((pythonJson as any).nodes) ? (pythonJson as any).nodes : [];
+      const remainingErrors = Array.isArray((pythonJson as any).remainingErrors)
+        ? (pythonJson as any).remainingErrors
+        : [];
+      (pythonJson as any).summary = {
+        iterations: 1,
+        issuesFound: remainingErrors.length,
+        issuesFixed: 0,
+        remainingIssues: remainingErrors.length,
+        nodes: pressureNodes.length,
+        pipes: 0,
+        fileName: (pythonJson as any).filename ?? analysis.fileName,
+        action: "analyze",
+        pressureOptimizationAvailable: false
+      };
+    }
+
   const successSchema = z
     .object({
       success: z.literal(true),
@@ -203,7 +221,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
   const allowedNodeCodes = new Set(["P-OK", "P-LOW", "P-HIGH", "P-NEG"]);
   function normalizeNode(raw: any) {
-    const elevation = toFiniteNumber(raw?.elevation);
+    const elevation = toFiniteNumber(raw?.elevation ?? raw?.elevationM);
     const baseDemandLps = toFiniteNumber(raw?.baseDemandLps);
 
     const headAwalM = toFiniteNumber(raw?.headAwalM);
@@ -215,12 +233,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     const pressureTekananM = toFiniteNumber(raw?.pressureTekananM);
 
     const pressureBefore = toFiniteNumber(raw?.pressureBefore);
-    const pressureAfter = toFiniteNumber(raw?.pressureAfter);
+    const pressureAfter = toFiniteNumber(
+      raw?.pressureAfter ?? raw?.pressureM ?? raw?.pressureTekananM ?? raw?.pressureDiameterM
+    );
 
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
       (typeof raw?.codeAfter === "string" && raw.codeAfter) ||
       (typeof raw?.codeBefore === "string" && raw.codeBefore) ||
+      (typeof raw?.pressureStatus === "string" && raw.pressureStatus === "OK"
+        ? "P-OK"
+        : typeof raw?.pressureStatus === "string"
+          ? raw.pressureStatus
+          : "") ||
       "";
 
     if (!allowedNodeCodes.has(code)) {
