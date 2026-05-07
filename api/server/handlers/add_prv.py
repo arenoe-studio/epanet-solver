@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from pathlib import Path
 
+from api.epanet.network_io import export_optimized_inp
 from api.epanet.network_io import InpValidationError, load_network
 from api.epanet.prv import apply_prvs, fine_tune_prvs
 from api.epanet.simulation import evaluate_network, run_simulation
@@ -65,7 +67,13 @@ def _engine_used(sim_results: dict) -> str:
     return "wntr"
 
 
-def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) -> dict:
+def add_prv(
+    inp_bytes: bytes,
+    filename: str,
+    prv_recommendations: list[dict],
+    original_inp_path: Path | None = None,
+    output_inp_path: Path | None = None,
+) -> dict:
     """
     Pasang PRV otomatis berdasarkan rekomendasi dari analyze_pressure().
     prv_recommendations: list rekomendasi dari hasil analyze_pressure().
@@ -78,6 +86,7 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
             "Tidak ada rekomendasi PRV. Jalankan Run Analysis Pressure terlebih dahulu."
         )
 
+    started = time.time()
     text = _decode_inp(inp_bytes)
     warnings = _warnings_from_inp_text(text)
 
@@ -104,6 +113,7 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
     ev_after = evaluate_network(wn, sim_after)
 
     engine_used = _engine_used(sim_after)
+    duration_seconds = round(time.time() - started, 3)
 
     nodes_out: list[dict] = []
     before_map = ev_before.get("node_status") or {}
@@ -111,6 +121,11 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
         if str(nid).startswith("J_PRV_"):
             continue
         code = str((info or {}).get("code") or "P-OK")
+        elevation = 0.0
+        try:
+            elevation = float(getattr(wn.get_node(str(nid)), "elevation", 0.0) or 0.0)
+        except Exception:
+            elevation = 0.0
         before_p = None
         try:
             before_p = float(before_map.get(nid, {}).get("pressure"))  # type: ignore[arg-type]
@@ -119,6 +134,7 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
         nodes_out.append(
             {
                 "id": str(nid),
+                "elevationM": elevation,
                 "pressureM": float((info or {}).get("pressure", 0.0) or 0.0),
                 "pressureStatus": "OK" if code == "P-OK" else code,
                 "pressureBeforeM": before_p,
@@ -139,10 +155,36 @@ def add_prv(inp_bytes: bytes, filename: str, prv_recommendations: list[dict]) ->
             }
         )
 
+    if output_inp_path is not None:
+        source_inp = original_inp_path
+        if source_inp is None:
+            source_inp = _write_temp_inp(inp_bytes)
+        try:
+            export_optimized_inp(source_inp, wn, output_inp_path)
+        finally:
+            if original_inp_path is None and source_inp is not None:
+                try:
+                    source_inp.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
     return {
         "success": True,
         "filename": str(filename or "network.inp"),
         "engineUsed": engine_used,
+        "summary": {
+            "iterations": 1,
+            "issuesFound": len(list(ev_before.get("violations", []) or [])),
+            "issuesFixed": len(list(ev_before.get("violations", []) or []))
+            - len(list(ev_after.get("violations", []) or [])),
+            "remainingIssues": len(remaining_errors),
+            "duration": float(duration_seconds),
+            "nodes": len(nodes_out),
+            "pipes": len(getattr(wn, "pipe_name_list", []) or []),
+            "fileName": str(filename or "network.inp"),
+            "action": "fix_pressure",
+            "pressureOptimizationAvailable": True,
+        },
         "prvInstalled": prv_installed,
         "nodes": nodes_out,
         "remainingErrors": remaining_errors,

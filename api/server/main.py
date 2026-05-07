@@ -205,7 +205,13 @@ async def add_prv_endpoint(
     def _run():
         jobs.mark_running(job.id)
         try:
-            result = add_prv(inp_bytes=raw, filename=original_filename, prv_recommendations=prv_data)
+            result = add_prv(
+                inp_bytes=raw,
+                filename=original_filename,
+                prv_recommendations=prv_data,
+                original_inp_path=inp_path,
+                output_inp_path=job_dir / "optimized_v1.inp",
+            )
             jobs.mark_succeeded(job.id, result)
         except (ValueError, InpValidationError) as e:
             jobs.mark_failed(job.id, str(e))

@@ -116,7 +116,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       return jsonError("Invalid backend response", 502, "E_INVALID_BACKEND_JSON");
     }
 
-    if (analysis.kind === "pressure" && !("summary" in pythonJson)) {
+    if ((analysis.kind === "pressure" || analysis.kind === "add_prv") && !("summary" in pythonJson)) {
       const pressureNodes = Array.isArray((pythonJson as any).nodes) ? (pythonJson as any).nodes : [];
       const remainingErrors = Array.isArray((pythonJson as any).remainingErrors)
         ? (pythonJson as any).remainingErrors
@@ -232,7 +232,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     const pressureDiameterM = toFiniteNumber(raw?.pressureDiameterM);
     const pressureTekananM = toFiniteNumber(raw?.pressureTekananM);
 
-    const pressureBefore = toFiniteNumber(raw?.pressureBefore);
+    const pressureBefore = toFiniteNumber(raw?.pressureBefore ?? raw?.pressureBeforeM);
     const pressureAfter = toFiniteNumber(
       raw?.pressureAfter ?? raw?.pressureM ?? raw?.pressureTekananM ?? raw?.pressureDiameterM
     );
@@ -420,7 +420,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   }
 
   // Deduct tokens on completion (not when the job is created), unless bypassed.
-  const tokenCost = analysis.kind === "fix_pressure" ? FIX_PRESSURE_TOKEN_COST : ANALYSIS_TOKEN_COST;
+  const tokenCost =
+    analysis.kind === "fix_pressure" || analysis.kind === "add_prv"
+      ? FIX_PRESSURE_TOKEN_COST
+      : ANALYSIS_TOKEN_COST;
 
     if (!bypassTokens) {
     let existingBalance: { balance: number | null };
