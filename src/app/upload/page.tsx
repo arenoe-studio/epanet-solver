@@ -241,6 +241,8 @@ export default function UploadPage() {
         fileName: selectedFile.name,
         kind,
         engineUsed: typeof done["engineUsed"] === "string" ? done["engineUsed"] : undefined,
+        remainingErrors: (done["remainingErrors"] as AnalysisResult["remainingErrors"]) ?? [],
+        diameterChanges: (done["diameterChanges"] as AnalysisResult["diameterChanges"]) ?? [],
         prvRecommendation: (done["prvRecommendation"] as AnalysisResult["prvRecommendation"]) ?? undefined,
         summary: doneSummary,
         prv: (done["prv"] as AnalysisResult["prv"]) ?? undefined,
