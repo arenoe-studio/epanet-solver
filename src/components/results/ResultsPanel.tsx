@@ -53,7 +53,13 @@ export function ResultsPanel({
       velocityStatus: vStatus, headlossStatus: hlStatus }];
   }), [pipes]);
   const diameterChanges = useMemo(() => pipes.flatMap((p) => (typeof p.diameterBefore === "number" && typeof p.diameterAfter === "number" && p.diameterBefore !== p.diameterAfter ? [{ pipeId: p.id, oldDiameterMm: p.diameterBefore, newDiameterMm: p.diameterAfter, reason: p.code }] : [])), [pipes]);
-  const remainingErrors = useMemo(() => result.remainingErrors?.length ? result.remainingErrors : buildRemainingErrors(nodes, pipes), [result.remainingErrors, nodes, pipes]);
+  const remainingErrors = useMemo(
+    () =>
+      result.remainingErrors?.length
+        ? result.remainingErrors
+        : buildRemainingErrors(nodes, pipes, kind),
+    [result.remainingErrors, nodes, pipes, kind]
+  );
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -115,7 +121,7 @@ function MaterialsTable({ materials }: { materials: MaterialResult[] }) {
   );
 }
 
-function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[]) {
+function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: AnalysisKind = "diameter") {
   const out: Array<{
     type: string;
     elementId: string;
@@ -125,17 +131,19 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[]) {
     suggestion: string;
   }> = [];
 
-  for (const n of nodes) {
-    if (n.code === "P-OK") continue;
-    const v = typeof n.pressureAfter === "number" ? n.pressureAfter : 0;
-    out.push({
-      type: n.code,
-      elementId: n.id,
-      value: Number(v.toFixed(2)),
-      unit: "m",
-      explanation: "Tekanan node masih di luar batas aman.",
-      suggestion: "Pertimbangkan PRV, ubah elevasi, atau atur demand untuk memperbaiki tekanan."
-    });
+  if (kind === "pressure" || kind === "add_prv") {
+    for (const n of nodes) {
+      if (n.code === "P-OK") continue;
+      const v = typeof n.pressureAfter === "number" ? n.pressureAfter : 0;
+      out.push({
+        type: n.code,
+        elementId: n.id,
+        value: Number(v.toFixed(2)),
+        unit: "m",
+        explanation: "Tekanan node masih di luar batas aman.",
+        suggestion: "Pertimbangkan PRV, ubah elevasi, atau atur demand untuk memperbaiki tekanan."
+      });
+    }
   }
 
   for (const p of pipes) {

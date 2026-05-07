@@ -29,7 +29,8 @@ export function SummaryCard({
 
   const engine = engineUsed?.toLowerCase();
   const durationSeconds = (summary as any).durationSeconds ?? summary.duration ?? undefined;
-  const remainingIssues = summary.remainingIssues ?? 0;
+  const remainingIssues =
+    summary.remainingIssues ?? Math.max(0, summary.issuesFound - summary.issuesFixed);
 
   return (
     <Card>
