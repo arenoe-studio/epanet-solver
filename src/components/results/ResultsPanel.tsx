@@ -35,6 +35,7 @@ export function ResultsPanel({
   const [activeTab, setActiveTab] = useState<Tab>("pipes");
   const nodes = result.nodes ?? [];
   const pipes = result.pipes ?? [];
+  console.log("[debug] pipes[0]:", JSON.stringify(pipes[0]));
   const materials = result.materials ?? [];
   const nodeRows = useMemo(() => nodes.flatMap((n) => {
     const pressure = n.pressureAfter ?? (n as any).pressureTekananM ?? (n as any).pressureDiameterM;
