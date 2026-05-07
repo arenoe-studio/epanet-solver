@@ -358,6 +358,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       snapshot = {};
     }
 
+    console.log(
+      "[result-route] keys being sent:",
+      Object.keys({
+        remainingErrors: (pythonJson as any).remainingErrors,
+        pipes: (pythonJson as any).pipes?.length
+      })
+    );
+    console.log(
+      "[result-route] remainingErrors value:",
+      JSON.stringify((pythonJson as any).remainingErrors)?.slice(0, 200)
+    );
+
     return jsonWithTrace({
       success: true,
       analysisId,
@@ -466,6 +478,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     await upsertAnalysisSnapshot(db, analysisId, payload);
   } catch {
   }
+
+    console.log(
+      "[result-route] keys being sent:",
+      Object.keys({
+        remainingErrors: (pythonJson as any).remainingErrors,
+        pipes: (pythonJson as any).pipes?.length
+      })
+    );
+    console.log(
+      "[result-route] remainingErrors value:",
+      JSON.stringify((pythonJson as any).remainingErrors)?.slice(0, 200)
+    );
 
     return jsonWithTrace({
       success: true,
