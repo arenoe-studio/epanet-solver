@@ -42,12 +42,15 @@ export function ResultsPanel({
     if (typeof pressure !== "number") return [];
     return [{ id: n.id, pressureM: pressure, pressureStatus: n.code === "P-OK" ? "OK" : n.code }];
   }), [nodes]);
-  const pipeRows = useMemo(() => pipes.flatMap((p) => {
-    const diam = p.diameterAfter ?? p.diameterBefore;
-    const vel = p.velocityAfter ?? (p as any).velocityMs ?? (p as any).velocityTekananMps;
-    const hl = p.headlossAfter ?? (p as any).headlossPerKm ?? (p as any).unitHeadlossTekananMkm;
+  const pipeRows = useMemo(() => pipes.flatMap((p: any) => {
+    const diam = p.diameterMm ?? p.diameterAfter ?? p.diameterBefore;
+    const vel = p.velocityMs ?? p.velocityAfter ?? p.velocityTekananMps;
+    const hl = p.headlossPerKm ?? p.headlossAfter ?? p.unitHeadlossTekananMkm;
     if (typeof diam !== "number" || typeof vel !== "number" || typeof hl !== "number") return [];
-    return [{ id: p.id, diameterMm: diam, velocityMs: vel, headlossPerKm: hl, velocityStatus: p.code === "V-HIGH" || p.code === "V-LOW" ? p.code : "OK", headlossStatus: p.code === "HL-HIGH" || p.code === "HL-SMALL" ? p.code : "OK" }];
+    const vStatus = p.velocityStatus ?? (p.code === "V-HIGH" || p.code === "V-LOW" ? p.code : "OK");
+    const hlStatus = p.headlossStatus ?? (p.code === "HL-HIGH" || p.code === "HL-SMALL" ? p.code : "OK");
+    return [{ id: p.id, diameterMm: diam, velocityMs: vel, headlossPerKm: hl,
+      velocityStatus: vStatus, headlossStatus: hlStatus }];
   }), [pipes]);
   const diameterChanges = useMemo(() => pipes.flatMap((p) => (typeof p.diameterBefore === "number" && typeof p.diameterAfter === "number" && p.diameterBefore !== p.diameterAfter ? [{ pipeId: p.id, oldDiameterMm: p.diameterBefore, newDiameterMm: p.diameterAfter, reason: p.code }] : [])), [pipes]);
   const remainingErrors = useMemo(() => result.remainingErrors?.length ? result.remainingErrors : buildRemainingErrors(nodes, pipes), [result.remainingErrors, nodes, pipes]);
