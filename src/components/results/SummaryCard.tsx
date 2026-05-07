@@ -8,12 +8,14 @@ export function SummaryCard({
   summary,
   kind,
   engineUsed,
-  convergenceStatus
+  convergenceStatus,
+  remainingCount
 }: {
   summary: AnalysisResult["summary"];
   kind: AnalysisKind;
   engineUsed?: string;
   convergenceStatus?: string;
+  remainingCount?: number;
 }) {
   const kindMeta: Record<AnalysisKind, { label: string; className: string }> = {
     diameter: { label: "Analisis Diameter", className: "bg-blue-600 text-white" },
@@ -29,7 +31,9 @@ export function SummaryCard({
 
   const engine = engineUsed?.toLowerCase();
   const durationSeconds = (summary as any).durationSeconds ?? summary.duration ?? undefined;
-  const remainingIssues = summary.remainingIssues ?? Math.max(0, summary.issuesFound - summary.issuesFixed);
+  // Prefer the actual count from the filtered remainingErrors array (passed from ResultsPanel)
+  // so the stat always matches what's shown in the Remaining Errors list.
+  const remainingIssues = remainingCount ?? summary.remainingIssues ?? Math.max(0, summary.issuesFound - summary.issuesFixed);
 
   return (
     <Card>

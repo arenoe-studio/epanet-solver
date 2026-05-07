@@ -53,19 +53,24 @@ export function ResultsPanel({
       velocityStatus: vStatus, headlossStatus: hlStatus }];
   }), [pipes]);
   const diameterChanges = useMemo(() => pipes.flatMap((p) => (typeof p.diameterBefore === "number" && typeof p.diameterAfter === "number" && p.diameterBefore !== p.diameterAfter ? [{ pipeId: p.id, oldDiameterMm: p.diameterBefore, newDiameterMm: p.diameterAfter, reason: p.code }] : [])), [pipes]);
-  const remainingErrors = useMemo(
-    () => result.remainingErrors?.length
+  const remainingErrors = useMemo(() => {
+    const raw: any[] = result.remainingErrors?.length
       ? result.remainingErrors
-      : buildRemainingErrors(nodes, pipes, kind),
-    [result.remainingErrors, nodes, pipes, kind]
-  );
+      : buildRemainingErrors(nodes, pipes, kind);
+    // For diameter analysis, exclude pressure-node errors (P-LOW / P-HIGH / P-NEG)
+    // — those belong to pressure analysis only.
+    if (kind === "diameter") {
+      return raw.filter((e: any) => !["P-LOW", "P-HIGH", "P-NEG"].includes(e.type));
+    }
+    return raw;
+  }, [result.remainingErrors, nodes, pipes, kind]);
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">{onBackToUpload ? <Button variant="ghost" size="sm" onClick={onBackToUpload}>← Kembali</Button> : null}<Button variant="outline" size="sm" onClick={onAnalyzeAnother}>Analisis File Baru</Button></div>
         <Badge variant="outline" className="font-mono">ID: {result.analysisId}</Badge>
       </div>
-      <SummaryCard summary={result.summary} kind={kind} engineUsed={result.engineUsed} convergenceStatus={undefined} />
+      <SummaryCard summary={result.summary} kind={kind} engineUsed={result.engineUsed} convergenceStatus={undefined} remainingCount={remainingErrors.length} />
       <Card>
         <CardHeader className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-base">Detail Hasil</CardTitle><div className="text-xs text-slate-gray">File: <span className="font-mono text-near-black">{result.fileName}</span></div></div>
@@ -146,9 +151,17 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: An
   }
 
   for (const p of pipes) {
-    if (p.code === "OK") continue;
+    // New-format pipes always have code="OK"; real status is in velocityStatus/headlossStatus.
+    const vSt = (p as any).velocityStatus;
+    const hlSt = (p as any).headlossStatus;
+    const effectiveCode =
+      p.code !== "OK" ? p.code
+      : vSt === "V-HIGH" || vSt === "V-LOW" ? vSt
+      : hlSt === "HL-HIGH" || hlSt === "HL-SMALL" ? hlSt
+      : "OK";
+    if (effectiveCode === "OK") continue;
     const value =
-      p.code === "V-HIGH" || p.code === "V-LOW"
+      effectiveCode === "V-HIGH" || effectiveCode === "V-LOW"
         ? typeof (p as any).velocityMs === "number"
           ? (p as any).velocityMs
           : typeof p.velocityAfter === "number"
@@ -159,9 +172,9 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: An
           : typeof p.headlossAfter === "number"
             ? p.headlossAfter
             : 0;
-    const unit = p.code === "V-HIGH" || p.code === "V-LOW" ? "m/s" : "m/km";
+    const unit = effectiveCode === "V-HIGH" || effectiveCode === "V-LOW" ? "m/s" : "m/km";
     out.push({
-      type: p.code,
+      type: effectiveCode,
       elementId: p.id,
       value: Number(value.toFixed(2)),
       unit,
