@@ -33,6 +33,7 @@ export function ResultsPanel({
   type Tab = "pipes" | "nodes" | "materials";
   const kind: AnalysisKind = result.kind ?? "diameter";
   const pressureOnlyNodes = kind === "pressure";
+  const diameterOnlyPipes = kind === "diameter";
   const [activeTab, setActiveTab] = useState<Tab>(pressureOnlyNodes ? "nodes" : "pipes");
   const nodes = result.nodes ?? [];
   const pipes = result.pipes ?? [];
@@ -74,10 +75,10 @@ export function ResultsPanel({
       <Card>
         <CardHeader className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2"><CardTitle className="text-base">Detail Hasil</CardTitle><div className="text-xs text-slate-gray">File: <span className="font-mono text-near-black">{result.fileName}</span></div></div>
-          {!pressureOnlyNodes ? <Tabs value={activeTab} onValueChange={(v) => (isTab(v) ? setActiveTab(v) : null)}><TabsList className="w-full justify-start gap-1 rounded-full border border-border-lavender bg-cloud-gray/40 p-1"><TabsTrigger value="pipes" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Pipa</TabsTrigger><TabsTrigger value="nodes" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Node</TabsTrigger><TabsTrigger value="materials" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Material</TabsTrigger></TabsList></Tabs> : null}
+          {!pressureOnlyNodes && !diameterOnlyPipes ? <Tabs value={activeTab} onValueChange={(v) => (isTab(v) ? setActiveTab(v) : null)}><TabsList className="w-full justify-start gap-1 rounded-full border border-border-lavender bg-cloud-gray/40 p-1"><TabsTrigger value="pipes" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Pipa</TabsTrigger><TabsTrigger value="nodes" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Node</TabsTrigger><TabsTrigger value="materials" className="rounded-full px-3 py-1 pb-1.5 text-xs data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:after:hidden">Material</TabsTrigger></TabsList></Tabs> : null}
         </CardHeader>
         <CardContent>
-          {pressureOnlyNodes ? <NodesTable nodes={nodeRows} /> : <Tabs value={activeTab} onValueChange={(v) => (isTab(v) ? setActiveTab(v) : null)}><TabsContent value="pipes"><PipesTable pipes={pipeRows} /></TabsContent><TabsContent value="nodes"><NodesTable nodes={nodeRows} /></TabsContent><TabsContent value="materials"><MaterialsTable materials={materials} /></TabsContent></Tabs>}
+          {pressureOnlyNodes ? <NodesTable nodes={nodeRows} /> : diameterOnlyPipes ? <PipesTable pipes={pipeRows} /> : <Tabs value={activeTab} onValueChange={(v) => (isTab(v) ? setActiveTab(v) : null)}><TabsContent value="pipes"><PipesTable pipes={pipeRows} /></TabsContent><TabsContent value="nodes"><NodesTable nodes={nodeRows} /></TabsContent><TabsContent value="materials"><MaterialsTable materials={materials} /></TabsContent></Tabs>}
         </CardContent>
       </Card>
       {kind === "diameter" && diameterChanges.length > 0 ? <div className="space-y-2"><div className="text-sm font-semibold text-expo-black">Perubahan Diameter</div><DiameterChanges changes={diameterChanges} /></div> : null}
