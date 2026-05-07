@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from api.epanet.materials import material_recommendations_for_network
-from api.epanet.network_io import InpValidationError, load_network
+from api.epanet.network_io import InpValidationError, export_optimized_inp, load_network
 from api.epanet.optimizer import optimize_diameters
 from api.epanet.simulation import evaluate_network, run_simulation
 
@@ -118,6 +118,8 @@ def analyze_diameter(
     filename: str,
     max_iterations: int = 50,
     time_budget_s: float = 180.0,
+    original_inp_path: Path | None = None,
+    output_inp_path: Path | None = None,
 ) -> dict:
     """
     Jalankan analisis optimasi diameter.
@@ -210,6 +212,19 @@ def analyze_diameter(
             }
         )
     materials_out.sort(key=lambda r: r["pipeId"])
+
+    if output_inp_path is not None:
+        source_inp = original_inp_path
+        if source_inp is None:
+            source_inp = _write_temp_inp(inp_bytes)
+        try:
+            export_optimized_inp(source_inp, wn_opt, output_inp_path)
+        finally:
+            if original_inp_path is None and source_inp is not None:
+                try:
+                    source_inp.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     return {
         "success": True,

@@ -119,6 +119,8 @@ async def analyze_diameter_endpoint(
                 filename=original_filename,
                 max_iterations=max_iterations,
                 time_budget_s=time_budget_s,
+                original_inp_path=inp_path,
+                output_inp_path=job_dir / "optimized_v1.inp",
             )
             jobs.mark_succeeded(job.id, result)
         except InpValidationError as e:

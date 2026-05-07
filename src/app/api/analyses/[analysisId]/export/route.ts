@@ -465,6 +465,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
       id: analyses.id,
       userId: analyses.userId,
       fileName: analyses.fileName,
+      kind: analyses.kind,
       createdAt: analyses.createdAt
     })
     .from(analyses)
@@ -531,6 +532,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
 
   try {
     if (format === "inp") {
+      if (analysis.kind !== "diameter" && analysis.kind !== "add_prv") {
+        if (charged) await refundTokens(db, userId, tokenCost);
+        return NextResponse.json(
+          { error: "File .inp hanya tersedia untuk hasil Analisis Diameter atau Add PRV." },
+          { status: 404 }
+        );
+      }
+
       const backendFile =
         variantResolved === "source"
           ? "input.inp"
@@ -547,9 +556,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
 
       const res = await fetch(backendUrl, { method: "GET" });
       if (!res.ok) {
-        const msg = parseErrorMessage(await res.text());
+        const raw = await res.text();
+        const msg = parseErrorMessage(raw) || "File hasil tidak tersedia untuk analisis ini.";
         if (charged) await refundTokens(db, userId, tokenCost);
-        return NextResponse.json({ error: msg }, { status: res.status });
+        return NextResponse.json(
+          { error: msg === "Not found" ? "File hasil tidak tersedia untuk analisis ini." : msg },
+          { status: res.status }
+        );
       }
 
       const buf = Buffer.from(await res.arrayBuffer());
