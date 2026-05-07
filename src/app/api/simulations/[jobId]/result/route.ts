@@ -253,25 +253,27 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
   const allowedPipeCodes = new Set(["OK", "V-LOW", "V-HIGH", "HL-HIGH", "HL-SMALL"]);
   function normalizePipe(raw: any) {
     const isNewFormat = raw?.velocityMs !== undefined || raw?.headlossPerKm !== undefined;
+
     if (isNewFormat) {
       return {
-        id: raw?.id,
-        fromNode: raw?.fromNode ?? null,
-        toNode: raw?.toNode ?? null,
-        length: raw?.lengthM ?? null,
-        roughnessC: raw?.roughness ?? null,
-        diameterMm: raw?.diameterMm ?? null,
-        velocityMs: raw?.velocityMs ?? null,
-        headlossPerKm: raw?.headlossPerKm ?? null,
-        velocityStatus: raw?.velocityStatus ?? "OK",
-        headlossStatus: raw?.headlossStatus ?? "OK",
-        // field lama set null untuk backward compat
+        id: String(raw?.id ?? ""),
+        fromNode: null,
+        toNode: null,
+        length: toFiniteNumber(raw?.lengthM),
+        roughnessC: toFiniteNumber(raw?.roughness),
+        diameterMm: toFiniteNumber(raw?.diameterMm),
+        velocityMs: toFiniteNumber(raw?.velocityMs),
+        headlossPerKm: toFiniteNumber(raw?.headlossPerKm),
+        velocityStatus: typeof raw?.velocityStatus === "string" ? raw.velocityStatus : "OK",
+        headlossStatus: typeof raw?.headlossStatus === "string" ? raw.headlossStatus : "OK",
         diameterAwalMm: null,
         velocityAwalMps: null,
-        headlossAwalMkm: null
+        unitHeadlossAwalMkm: null,
+        code: "OK"
       };
     }
 
+    // format lama — pertahankan mapping existing persis sama
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
       (typeof raw?.compositeAfter === "string" && raw.compositeAfter) ||
@@ -367,10 +369,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       nodes,
       pipes,
       materials,
-      remainingErrors: snapshot?.remainingErrors ?? [],
+      remainingErrors: (pythonJson as any).remainingErrors ?? [],
       engineUsed: snapshot?.engineUsed ?? "wntr",
       kind: analysis.kind ?? "diameter",
-      diameterChanges: snapshot?.diameterChanges ?? [],
+      diameterChanges: (pythonJson as any).diameterChanges ?? [],
       addPrvAvailable: pythonJson.addPrvAvailable ?? false,
       prvRecommendation: pythonJson.prvRecommendation ?? null,
       networkInfo: (result as any).networkInfo,
@@ -454,8 +456,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       nodes,
       pipes,
       materials,
-      remainingErrors: pythonJson.remainingErrors ?? [],
-      diameterChanges: pythonJson.diameterChanges ?? [],
+      remainingErrors: (pythonJson as any).remainingErrors ?? [],
+      diameterChanges: (pythonJson as any).diameterChanges ?? [],
       engineUsed: pythonJson.engineUsed ?? "wntr",
       networkInfo: (result as any).networkInfo,
       detailsTruncated,
@@ -476,10 +478,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       nodes,
       pipes,
       materials,
-      remainingErrors: pythonJson.remainingErrors ?? [],
+      remainingErrors: (pythonJson as any).remainingErrors ?? [],
       engineUsed: pythonJson.engineUsed ?? "wntr",
       kind: analysis.kind ?? "diameter",
-      diameterChanges: pythonJson.diameterChanges ?? [],
+      diameterChanges: (pythonJson as any).diameterChanges ?? [],
       addPrvAvailable: pythonJson.addPrvAvailable ?? false,
       prvRecommendation: pythonJson.prvRecommendation ?? null,
       networkInfo: (result as any).networkInfo,

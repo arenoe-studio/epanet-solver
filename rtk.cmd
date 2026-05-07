@@ -1,8 +1,9 @@
 @echo off
+rem Minimal RTK shim for environments where RTK isn't installed.
+rem Pass-through only: rtk <cmd> [args...]
 setlocal
-
-REM Minimal RTK shim for this repo.
-REM Passes through to PowerShell so aliases like `ls` work in this environment.
-
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0rtk.ps1" %*
-
+if "%~1"=="" (
+  echo Usage: rtk ^<command^> [args...]
+  exit /b 1
+)
+%*
