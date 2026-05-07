@@ -36,10 +36,20 @@ export function ResultsPanel({
   const nodes = result.nodes ?? [];
   const pipes = result.pipes ?? [];
   const materials = result.materials ?? [];
-  const nodeRows = useMemo(() => nodes.flatMap((n) => (typeof n.pressureAfter === "number" ? [{ id: n.id, pressureM: n.pressureAfter, pressureStatus: n.code === "P-OK" ? "OK" : n.code }] : [])), [nodes]);
-  const pipeRows = useMemo(() => pipes.flatMap((p) => (typeof p.diameterAfter === "number" && typeof p.velocityAfter === "number" && typeof p.headlossAfter === "number" ? [{ id: p.id, diameterMm: p.diameterAfter, velocityMs: p.velocityAfter, headlossPerKm: p.headlossAfter, velocityStatus: p.code === "V-HIGH" || p.code === "V-LOW" ? p.code : "OK", headlossStatus: p.code === "HL-HIGH" || p.code === "HL-SMALL" ? p.code : "OK" }] : [])), [pipes]);
+  const nodeRows = useMemo(() => nodes.flatMap((n) => {
+    const pressure = n.pressureAfter ?? (n as any).pressureTekananM ?? (n as any).pressureDiameterM;
+    if (typeof pressure !== "number") return [];
+    return [{ id: n.id, pressureM: pressure, pressureStatus: n.code === "P-OK" ? "OK" : n.code }];
+  }), [nodes]);
+  const pipeRows = useMemo(() => pipes.flatMap((p) => {
+    const diam = p.diameterAfter ?? p.diameterBefore;
+    const vel = p.velocityAfter ?? (p as any).velocityMs ?? (p as any).velocityTekananMps;
+    const hl = p.headlossAfter ?? (p as any).headlossPerKm ?? (p as any).unitHeadlossTekananMkm;
+    if (typeof diam !== "number" || typeof vel !== "number" || typeof hl !== "number") return [];
+    return [{ id: p.id, diameterMm: diam, velocityMs: vel, headlossPerKm: hl, velocityStatus: p.code === "V-HIGH" || p.code === "V-LOW" ? p.code : "OK", headlossStatus: p.code === "HL-HIGH" || p.code === "HL-SMALL" ? p.code : "OK" }];
+  }), [pipes]);
   const diameterChanges = useMemo(() => pipes.flatMap((p) => (typeof p.diameterBefore === "number" && typeof p.diameterAfter === "number" && p.diameterBefore !== p.diameterAfter ? [{ pipeId: p.id, oldDiameterMm: p.diameterBefore, newDiameterMm: p.diameterAfter, reason: p.code }] : [])), [pipes]);
-  const remainingErrors = useMemo(() => buildRemainingErrors(nodes, pipes), [nodes, pipes]);
+  const remainingErrors = useMemo(() => result.remainingErrors?.length ? result.remainingErrors : buildRemainingErrors(nodes, pipes), [result.remainingErrors, nodes, pipes]);
   return (
     <section className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
