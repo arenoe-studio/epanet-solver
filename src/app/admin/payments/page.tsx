@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 
-import { adminUpdateTransaction } from "@/app/admin/actions";
+import { adminSyncTransactionStatus } from "@/app/admin/actions";
 import { ConfirmButton } from "@/app/admin/_ui/ConfirmButton";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
@@ -240,26 +240,13 @@ export default async function AdminPaymentsPage({
                     <td className="px-4 py-2.5">
                       {row.status === "pending" ? (
                         <div className="flex gap-1.5">
-                          <form action={adminUpdateTransaction}>
+                          <form action={adminSyncTransactionStatus}>
                             <input type="hidden" name="transactionId" value={row.id} />
-                            <input type="hidden" name="status" value="paid" />
-                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "midtrans"} />
                             <ConfirmButton
-                              message={`Set PAID: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`}
-                              className="rounded bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
+                              message={`Sync status Midtrans: ${row.orderId}?\nUser: ${row.userEmail ?? row.userId}`}
+                              className="rounded bg-[#111112] px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
                             >
-                              Set Paid
-                            </ConfirmButton>
-                          </form>
-                          <form action={adminUpdateTransaction}>
-                            <input type="hidden" name="transactionId" value={row.id} />
-                            <input type="hidden" name="status" value="failed" />
-                            <input type="hidden" name="paymentMethod" value={row.paymentMethod ?? "midtrans"} />
-                            <ConfirmButton
-                              message={`Set FAILED: ${row.orderId}?`}
-                              className="rounded border border-[#e4e5ea] px-2.5 py-1 text-xs font-medium text-[#6b7280] hover:bg-[#f5f5f7]"
-                            >
-                              Set Failed
+                              Sync Midtrans
                             </ConfirmButton>
                           </form>
                         </div>

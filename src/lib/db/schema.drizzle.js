@@ -154,7 +154,8 @@ const transactions = pgTable(
     snapToken: text("snap_token"),
     snapTokenExpiresAt: timestamp("snap_token_expires_at", { mode: "date" }),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow(),
-    paidAt: timestamp("paid_at", { mode: "date" })
+    paidAt: timestamp("paid_at", { mode: "date" }),
+    creditedAt: timestamp("credited_at", { mode: "date" })
   },
   (table) => ({
     orderUnique: uniqueIndex("transactions_order_id_unique").on(table.orderId)

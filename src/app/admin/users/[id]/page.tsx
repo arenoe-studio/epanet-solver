@@ -5,7 +5,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import {
   adminAdjustTokens,
-  adminUpdateTransaction,
+  adminSyncTransactionStatus,
   adminUpdateUser
 } from "@/app/admin/actions";
 import { requireAdmin } from "@/lib/admin-server";
@@ -298,17 +298,9 @@ export default async function AdminUserDetailPage({
                   <td className="px-4 py-2">
                     {t.status === "pending" ? (
                       <div className="flex gap-1.5">
-                        <form action={adminUpdateTransaction}>
+                        <form action={adminSyncTransactionStatus}>
                           <input type="hidden" name="transactionId" value={t.id} />
-                          <input type="hidden" name="status" value="paid" />
-                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
-                          <button type="submit" className="rounded bg-green-600 px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90">Set Paid</button>
-                        </form>
-                        <form action={adminUpdateTransaction}>
-                          <input type="hidden" name="transactionId" value={t.id} />
-                          <input type="hidden" name="status" value="failed" />
-                          <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
-                          <button type="submit" className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f5f5f7]">Set Failed</button>
+                          <button type="submit" className="rounded bg-[#111112] px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90">Sync Midtrans</button>
                         </form>
                       </div>
                     ) : (

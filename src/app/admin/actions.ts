@@ -8,6 +8,8 @@ import { eq, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/admin-server";
 import { getDb } from "@/lib/db";
 import { adminTokenEvents, contactMessages, tokenBalances, transactions, users } from "@/lib/db/schema";
+import { getMidtransTransactionStatus } from "@/lib/midtrans";
+import { syncMidtransTransaction } from "@/lib/midtrans-payment-sync";
 import { sendPaymentConfirmationEmail } from "@/lib/resend";
 
 const adjustTokensSchema = z.object({
@@ -216,22 +218,18 @@ export async function adminUpdateReport(formData: FormData) {
   revalidatePath("/admin/reports");
 }
 
-const updateTxSchema = z.object({
-  transactionId: z.coerce.number().int().positive(),
-  status: z.enum(["pending", "paid", "failed"]),
-  paymentMethod: z.string().max(100).optional()
+const syncTxSchema = z.object({
+  transactionId: z.coerce.number().int().positive()
 });
 
-export async function adminUpdateTransaction(formData: FormData) {
-  const parsed = updateTxSchema.safeParse({
-    transactionId: formData.get("transactionId"),
-    status: formData.get("status"),
-    paymentMethod: formData.get("paymentMethod") ?? undefined
+export async function adminSyncTransactionStatus(formData: FormData) {
+  const parsed = syncTxSchema.safeParse({
+    transactionId: formData.get("transactionId")
   });
   if (!parsed.success) return;
 
   await requireAdmin();
-  const { transactionId, status, paymentMethod } = parsed.data;
+  const { transactionId } = parsed.data;
 
   const db = getDb();
   const txRows = await db
@@ -243,59 +241,8 @@ export async function adminUpdateTransaction(formData: FormData) {
   const tx = txRows[0];
   if (!tx || !tx.userId) return;
   const userId = tx.userId;
-
-  if (status !== "paid") {
-    await db
-      .update(transactions)
-      .set({
-        status,
-        paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
-        paidAt: null
-      })
-      .where(eq(transactions.id, transactionId));
-
-    revalidatePath(`/admin/users/${userId}`);
-    revalidatePath("/admin/payments");
-    revalidatePath("/admin");
-    return;
-  }
-
-  if (tx.status === "paid") {
-    revalidatePath(`/admin/users/${userId}`);
-    revalidatePath("/admin/payments");
-    revalidatePath("/admin");
-    return;
-  }
-
-  await db
-    .update(transactions)
-    .set({
-      status: "paid",
-      paymentMethod: paymentMethod?.trim() ? paymentMethod.trim() : tx.paymentMethod,
-      paidAt: new Date()
-    })
-    .where(eq(transactions.id, transactionId));
-
-  const tokensToAdd = tx.tokens ?? 0;
-  if (tokensToAdd > 0) {
-    await db
-      .insert(tokenBalances)
-      .values({
-        userId,
-        balance: tokensToAdd,
-        totalBought: tokensToAdd,
-        totalUsed: 0,
-        updatedAt: new Date()
-      })
-      .onConflictDoUpdate({
-        target: tokenBalances.userId,
-        set: {
-          balance: sql`coalesce(${tokenBalances.balance}, 0) + ${tokensToAdd}`,
-          totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${tokensToAdd}`,
-          updatedAt: new Date()
-        }
-      });
-  }
+  const status = await getMidtransTransactionStatus(tx.orderId);
+  const { creditedNow } = await syncMidtransTransaction(db, tx, status);
 
   const userRows = await db
     .select({ email: users.email })
@@ -304,7 +251,7 @@ export async function adminUpdateTransaction(formData: FormData) {
     .limit(1);
 
   const to = userRows[0]?.email ?? "";
-  if (to && tx.tokens && tx.amount) {
+  if (creditedNow && to && tx.tokens && tx.amount) {
     void sendPaymentConfirmationEmail({
       to,
       tokens: tx.tokens,

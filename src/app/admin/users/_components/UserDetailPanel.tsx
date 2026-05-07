@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-import { adminAdjustTokens, adminUpdateTransaction } from "@/app/admin/actions";
+import { adminAdjustTokens, adminSyncTransactionStatus } from "@/app/admin/actions";
 
 function fmt(dt: Date | string | null | undefined) {
   if (!dt) return "—";
@@ -237,26 +237,13 @@ export function UserDetailPanel({
                   </div>
                   {t.status === "pending" && (
                     <div className="mt-1.5 flex gap-2">
-                      <form action={adminUpdateTransaction}>
+                      <form action={adminSyncTransactionStatus}>
                         <input type="hidden" name="transactionId" value={t.id} />
-                        <input type="hidden" name="status" value="paid" />
-                        <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
                         <button
                           type="submit"
-                          className="rounded bg-green-600 px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+                          className="rounded bg-[#111112] px-2 py-1 text-[11px] font-semibold text-white hover:opacity-90"
                         >
-                          Set Paid
-                        </button>
-                      </form>
-                      <form action={adminUpdateTransaction}>
-                        <input type="hidden" name="transactionId" value={t.id} />
-                        <input type="hidden" name="status" value="failed" />
-                        <input type="hidden" name="paymentMethod" value={t.paymentMethod ?? "midtrans"} />
-                        <button
-                          type="submit"
-                          className="rounded border border-[#e4e5ea] px-2 py-1 text-[11px] font-medium text-[#6b7280] hover:bg-[#f5f5f7]"
-                        >
-                          Set Failed
+                          Sync Midtrans
                         </button>
                       </form>
                     </div>

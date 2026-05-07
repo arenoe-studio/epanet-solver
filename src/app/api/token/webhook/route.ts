@@ -2,26 +2,19 @@ import crypto from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
-import { tokenBalances, transactions, users } from "@/lib/db/schema";
+import { transactions, users } from "@/lib/db/schema";
+import { getMidtransTransactionStatus, type MidtransTransactionStatus } from "@/lib/midtrans";
+import { syncMidtransTransaction } from "@/lib/midtrans-payment-sync";
 import { getPaymentProvider } from "@/lib/payment";
 import { sendPaymentConfirmationEmail } from "@/lib/resend";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type MidtransWebhookBody = {
-  order_id: string;
-  status_code: string;
-  gross_amount: string;
-  signature_key: string;
-  transaction_status: string;
-  payment_type?: string;
-};
-
-function verifySignature(body: MidtransWebhookBody) {
+function verifySignature(body: MidtransTransactionStatus) {
   const serverKey = process.env.MIDTRANS_SERVER_KEY;
   if (!serverKey) return false;
   const raw = `${body.order_id}${body.status_code}${body.gross_amount}${serverKey}`;
@@ -34,9 +27,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  let body: MidtransWebhookBody;
+  let body: MidtransTransactionStatus;
   try {
-    body = (await req.json()) as MidtransWebhookBody;
+    body = (await req.json()) as MidtransTransactionStatus;
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
@@ -56,50 +49,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  if (tx.status === "paid") {
+  if (tx.creditedAt) {
     return NextResponse.json({ ok: true });
   }
 
-  const status = body.transaction_status;
-  const isPaid = status === "settlement" || status === "capture";
-
-  if (!isPaid) {
-    const mapped = status === "pending" ? "pending" : "failed";
-    await db
-      .update(transactions)
-      .set({ status: mapped, paymentMethod: body.payment_type ?? null })
-      .where(eq(transactions.orderId, body.order_id));
+  const status = await getMidtransTransactionStatus(body.order_id);
+  const { creditedNow } = await syncMidtransTransaction(db, tx, status);
+  if (!creditedNow) {
     return NextResponse.json({ ok: true });
-  }
-
-  await db
-    .update(transactions)
-    .set({
-      status: "paid",
-      paymentMethod: body.payment_type ?? null,
-      paidAt: new Date()
-    })
-    .where(eq(transactions.orderId, body.order_id));
-
-  const tokensToAdd = tx.tokens ?? 0;
-  if (tx.userId && tokensToAdd > 0) {
-    await db
-      .insert(tokenBalances)
-      .values({
-        userId: tx.userId,
-        balance: tokensToAdd,
-        totalBought: tokensToAdd,
-        totalUsed: 0,
-        updatedAt: new Date()
-      })
-      .onConflictDoUpdate({
-        target: tokenBalances.userId,
-        set: {
-          balance: sql`coalesce(${tokenBalances.balance}, 0) + ${tokensToAdd}`,
-          totalBought: sql`coalesce(${tokenBalances.totalBought}, 0) + ${tokensToAdd}`,
-          updatedAt: new Date()
-        }
-      });
   }
 
   if (tx.userId && tx.tokens && tx.amount) {

@@ -6,6 +6,16 @@ export const PACKAGES = TOKEN_PACKAGES;
 
 let cachedSnap: InstanceType<typeof MidtransClient.Snap> | null = null;
 
+export type MidtransTransactionStatus = {
+  order_id: string;
+  transaction_status: string;
+  payment_type?: string;
+  fraud_status?: string;
+  status_code?: string;
+  gross_amount?: string;
+  signature_key?: string;
+};
+
 export function getSnap() {
   if (cachedSnap) return cachedSnap;
 
@@ -25,4 +35,8 @@ export function getSnap() {
   });
 
   return cachedSnap;
+}
+
+export async function getMidtransTransactionStatus(orderId: string) {
+  return (await getSnap().transaction.status(orderId)) as MidtransTransactionStatus;
 }
