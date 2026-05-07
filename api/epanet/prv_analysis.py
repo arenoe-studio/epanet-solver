@@ -18,6 +18,7 @@ from .prv_helpers import (
     _restrict_to_band,
 )
 
+@dataclass
 class PrvRecommendation:
     pipe_id: str
     upstream_node: str
