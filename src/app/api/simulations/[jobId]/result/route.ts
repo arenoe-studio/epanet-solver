@@ -8,7 +8,7 @@ import { auth } from "@/lib/auth-server";
 import { shouldBypassTokensForEmail } from "@/lib/admin";
 import { upsertAnalysisSnapshot } from "@/lib/analysis-snapshots";
 import { getDb } from "@/lib/db";
-import { analyses, tokenBalances } from "@/lib/db/schema";
+import { analyses, analysisSnapshots, tokenBalances } from "@/lib/db/schema";
 import { buildPythonApiUrl } from "@/lib/python-api";
 import { ensureInitialTokenBalanceRow } from "@/lib/token-balance";
 import { ANALYSIS_TOKEN_COST, FIX_PRESSURE_TOKEN_COST } from "@/lib/token-constants";
@@ -252,6 +252,26 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
   const allowedPipeCodes = new Set(["OK", "V-LOW", "V-HIGH", "HL-HIGH", "HL-SMALL"]);
   function normalizePipe(raw: any) {
+    const isNewFormat = raw?.velocityMs !== undefined || raw?.headlossPerKm !== undefined;
+    if (isNewFormat) {
+      return {
+        id: raw?.id,
+        fromNode: raw?.fromNode ?? null,
+        toNode: raw?.toNode ?? null,
+        length: raw?.lengthM ?? null,
+        roughnessC: raw?.roughness ?? null,
+        diameterMm: raw?.diameterMm ?? null,
+        velocityMs: raw?.velocityMs ?? null,
+        headlossPerKm: raw?.headlossPerKm ?? null,
+        velocityStatus: raw?.velocityStatus ?? "OK",
+        headlossStatus: raw?.headlossStatus ?? "OK",
+        // field lama set null untuk backward compat
+        diameterAwalMm: null,
+        velocityAwalMps: null,
+        headlossAwalMkm: null
+      };
+    }
+
     let code: string =
       (typeof raw?.code === "string" && raw.code) ||
       (typeof raw?.compositeAfter === "string" && raw.compositeAfter) ||
@@ -324,6 +344,18 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
 
   // Idempotency: if already marked success, just return the result.
   if (analysis.status === "success") {
+    let snapshot: any = {};
+    try {
+      const rows = await db
+        .select({ payload: analysisSnapshots.payload })
+        .from(analysisSnapshots)
+        .where(eq(analysisSnapshots.analysisId, analysisId))
+        .limit(1);
+      snapshot = rows[0]?.payload ?? {};
+    } catch {
+      snapshot = {};
+    }
+
     return jsonWithTrace({
       success: true,
       analysisId,
@@ -335,10 +367,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       nodes,
       pipes,
       materials,
-      remainingErrors: pythonJson.remainingErrors ?? [],
-      engineUsed: pythonJson.engineUsed ?? "wntr",
+      remainingErrors: snapshot?.remainingErrors ?? [],
+      engineUsed: snapshot?.engineUsed ?? "wntr",
       kind: analysis.kind ?? "diameter",
-      diameterChanges: pythonJson.diameterChanges ?? [],
+      diameterChanges: snapshot?.diameterChanges ?? [],
       addPrvAvailable: pythonJson.addPrvAvailable ?? false,
       prvRecommendation: pythonJson.prvRecommendation ?? null,
       networkInfo: (result as any).networkInfo,
@@ -422,6 +454,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       nodes,
       pipes,
       materials,
+      remainingErrors: pythonJson.remainingErrors ?? [],
+      diameterChanges: pythonJson.diameterChanges ?? [],
+      engineUsed: pythonJson.engineUsed ?? "wntr",
       networkInfo: (result as any).networkInfo,
       detailsTruncated,
       backendJobId: jobId
