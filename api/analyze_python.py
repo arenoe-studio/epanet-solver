@@ -420,14 +420,27 @@ class handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+            # Pipe-only issue counts (excludes node pressure violations).
+            # The diameter optimizer fixes pipe velocity/headloss issues; it cannot
+            # fix node pressure violations (P-HIGH/P-LOW), so those must not inflate
+            # issuesFound / issuesFixed / remainingIssues for a diameter analysis.
+            _pipe_issues_found = sum(
+                1 for pid in wn.pipe_name_list
+                if baseline_eval["pipe_status"].get(pid, {}).get("composite", "OK") != "OK"
+            )
+            _pipe_issues_remaining = sum(
+                1 for pid in wn_opt.pipe_name_list
+                if final_eval["pipe_status"].get(pid, {}).get("composite", "OK") != "OK"
+            )
+            _pipe_issues_fixed = _pipe_issues_found - _pipe_issues_remaining
+
             response = {
                 "success": True,
                 "summary": {
                     "iterations": len(snapshots),
-                    "issuesFound": len(baseline_eval.get("violations", [])),
-                    "issuesFixed": len(baseline_eval.get("violations", []))
-                    - len(final_eval.get("violations", [])),
-                    "remainingIssues": len(final_eval.get("violations", [])),
+                    "issuesFound": _pipe_issues_found,
+                    "issuesFixed": _pipe_issues_fixed,
+                    "remainingIssues": _pipe_issues_remaining,
                     "duration": round(time.time() - start),
                     "nodes": wn.num_junctions,
                     "pipes": wn.num_pipes,

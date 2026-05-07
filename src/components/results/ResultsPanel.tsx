@@ -151,17 +151,9 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: An
   }
 
   for (const p of pipes) {
-    // New-format pipes always have code="OK"; real status is in velocityStatus/headlossStatus.
-    const vSt = (p as any).velocityStatus;
-    const hlSt = (p as any).headlossStatus;
-    const effectiveCode =
-      p.code !== "OK" ? p.code
-      : vSt === "V-HIGH" || vSt === "V-LOW" ? vSt
-      : hlSt === "HL-HIGH" || hlSt === "HL-SMALL" ? hlSt
-      : "OK";
-    if (effectiveCode === "OK") continue;
+    if (p.code === "OK") continue;
     const value =
-      effectiveCode === "V-HIGH" || effectiveCode === "V-LOW"
+      p.code === "V-HIGH" || p.code === "V-LOW"
         ? typeof (p as any).velocityMs === "number"
           ? (p as any).velocityMs
           : typeof p.velocityAfter === "number"
@@ -172,9 +164,9 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: An
           : typeof p.headlossAfter === "number"
             ? p.headlossAfter
             : 0;
-    const unit = effectiveCode === "V-HIGH" || effectiveCode === "V-LOW" ? "m/s" : "m/km";
+    const unit = p.code === "V-HIGH" || p.code === "V-LOW" ? "m/s" : "m/km";
     out.push({
-      type: effectiveCode,
+      type: p.code,
       elementId: p.id,
       value: Number(value.toFixed(2)),
       unit,

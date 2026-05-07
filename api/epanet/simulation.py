@@ -545,6 +545,8 @@ def evaluate_network(
             composite = "HL-SMALL"
         elif "HL-HIGH" in issues:
             composite = "HL-HIGH"
+        elif "V-HIGH" in issues:
+            composite = "V-HIGH"
         elif "V-LOW" in issues:
             composite = "V-LOW"
         else:
