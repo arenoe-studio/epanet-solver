@@ -54,10 +54,9 @@ export function ResultsPanel({
   }), [pipes]);
   const diameterChanges = useMemo(() => pipes.flatMap((p) => (typeof p.diameterBefore === "number" && typeof p.diameterAfter === "number" && p.diameterBefore !== p.diameterAfter ? [{ pipeId: p.id, oldDiameterMm: p.diameterBefore, newDiameterMm: p.diameterAfter, reason: p.code }] : [])), [pipes]);
   const remainingErrors = useMemo(
-    () =>
-      result.remainingErrors?.length
-        ? result.remainingErrors
-        : buildRemainingErrors(nodes, pipes, kind),
+    () => result.remainingErrors?.length
+      ? result.remainingErrors
+      : buildRemainingErrors(nodes, pipes, kind),
     [result.remainingErrors, nodes, pipes, kind]
   );
   return (
@@ -150,12 +149,16 @@ function buildRemainingErrors(nodes: NodeResult[], pipes: PipeResult[], kind: An
     if (p.code === "OK") continue;
     const value =
       p.code === "V-HIGH" || p.code === "V-LOW"
-        ? typeof p.velocityAfter === "number"
-          ? p.velocityAfter
-          : 0
-        : typeof p.headlossAfter === "number"
-          ? p.headlossAfter
-          : 0;
+        ? typeof (p as any).velocityMs === "number"
+          ? (p as any).velocityMs
+          : typeof p.velocityAfter === "number"
+            ? p.velocityAfter
+            : 0
+        : typeof (p as any).headlossPerKm === "number"
+          ? (p as any).headlossPerKm
+          : typeof p.headlossAfter === "number"
+            ? p.headlossAfter
+            : 0;
     const unit = p.code === "V-HIGH" || p.code === "V-LOW" ? "m/s" : "m/km";
     out.push({
       type: p.code,
