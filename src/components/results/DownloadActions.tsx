@@ -66,7 +66,7 @@ export function DownloadActions({
     }
   }
 
-  const canDownloadInp = kind === "diameter" || kind === "add_prv";
+  const canDownloadInp = kind === "diameter";
   const notEnoughForInp =
     tokenBalance !== null && tokenBalance !== undefined ? tokenBalance < inpTokenCost : false;
 
@@ -93,7 +93,7 @@ export function DownloadActions({
           />
           {canDownloadInp ? (
             <DownloadButton
-              title={kind === "add_prv" ? "Download File .INP dengan PRV" : "Download File .INP Hasil"}
+              title="Download File .INP Hasil"
               tokenCost={inpTokenCost}
               busy={busy === "inp"}
               disabled={notEnoughForInp}
@@ -102,7 +102,9 @@ export function DownloadActions({
             />
           ) : (
             <div className="rounded-2xl border border-border-lavender bg-white p-4 text-xs text-slate-gray">
-              Untuk analisis pressure, tidak ada file <span className="font-mono">.inp</span> yang diunduh karena tidak memodifikasi file.
+              {kind === "add_prv"
+                ? <>Untuk hasil Fix Pressure/Add PRV, file <span className="font-mono">.inp</span> tidak tersedia untuk diunduh.</>
+                : <>Untuk analisis pressure, tidak ada file <span className="font-mono">.inp</span> yang diunduh karena tidak memodifikasi file.</>}
             </div>
           )}
         </div>
