@@ -25,9 +25,38 @@ type TransactionResponse = {
   error?: string;
 };
 
+type SyncStatusResponse = {
+  ok?: boolean;
+  credited?: number;
+  error?: string;
+};
+
 async function fetcher(url: string): Promise<TransactionResponse> {
   const res = await fetch(url);
   return res.json();
+}
+
+async function syncTransactionStatus(orderId?: string): Promise<SyncStatusResponse> {
+  const res = await fetch("/api/token/sync-status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(orderId ? { orderId } : {})
+  });
+  return res.json();
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function syncTransactionUntilCredited(orderId?: string): Promise<SyncStatusResponse> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = await syncTransactionStatus(orderId);
+    if (result.credited && result.credited > 0) return result;
+    if (attempt < 3) await wait(1500);
+  }
+
+  return { ok: true, credited: 0 };
 }
 
 function formatDateTime(value: string | Date | null) {
@@ -107,7 +136,8 @@ export function CheckoutClient() {
     isLoading: transactionsLoading,
     mutate: mutateTransactions
   } = useSWR<TransactionResponse>(isAuthenticated ? "/api/transactions" : null, fetcher, {
-    revalidateOnFocus: false
+    revalidateOnFocus: false,
+    refreshInterval: isAuthenticated ? 15000 : 0
   });
 
   const transactions = data?.items ?? [];
@@ -116,13 +146,13 @@ export function CheckoutClient() {
 
   const activeBalance = balance ?? 0;
 
-  async function openSnapPayment(snapToken: string) {
+  async function openSnapPayment(snapToken: string, orderId?: string) {
     const snap = (window as Window & {
       snap?: {
         pay: (
           token: string,
           options: {
-            onSuccess?: () => void;
+            onSuccess?: () => void | Promise<void>;
             onPending?: () => void;
             onError?: () => void;
             onClose?: () => void;
@@ -136,12 +166,16 @@ export function CheckoutClient() {
     }
 
     snap.pay(snapToken, {
-      onSuccess: () => {
+      onSuccess: async () => {
+        const syncResult = await syncTransactionUntilCredited(orderId);
         void refreshBalance();
         void mutateTransactions();
         push({
           title: "Pembayaran berhasil",
-          description: "Token kamu sudah diperbarui.",
+          description:
+            syncResult.credited && syncResult.credited > 0
+              ? "Token kamu sudah diperbarui."
+              : "Pembayaran tercatat. Kami sedang sinkronkan token kamu.",
           variant: "success"
         });
         setBusyPackage(null);
@@ -216,7 +250,7 @@ export function CheckoutClient() {
           setBusyPackage(null);
           return;
         }
-        await openSnapPayment(snapToken);
+        await openSnapPayment(snapToken, json.orderId);
         return;
       }
 
@@ -250,7 +284,7 @@ export function CheckoutClient() {
     if (canReuseSnapToken(tx)) {
       setBusyPackage(pkgKey);
       try {
-        await openSnapPayment(tx.snapToken ?? "");
+        await openSnapPayment(tx.snapToken ?? "", tx.orderId);
       } catch {
         push({
           title: "Snap.js belum siap",

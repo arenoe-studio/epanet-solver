@@ -5,6 +5,7 @@ import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth-server";
 import { getDb } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
+import { syncUserTransactions } from "@/lib/transaction-status-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export async function GET() {
   }
 
   const db = getDb();
+  await syncUserTransactions(db, { userId, limit: 5 });
   const rows = await db
     .select({
       id: transactions.id,
