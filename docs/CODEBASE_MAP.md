@@ -31,10 +31,12 @@
 - **Tugas:** Alur utama upload & analisis file `.inp`: pilih file → preview → jalankan analisis → polling job simulation → tampilkan hasil / error; juga bisa buka hasil dari riwayat.
 - **State utama:** `state` (`AppState`), `selectedFile`, `result`, `errorMessage`, `isAnalyzing`, `isFixingPressure`, `isLoadingHistory`, `viewingHistoryId`, `pollAbortRef` (AbortController).
 - **API yang dipanggil:**
-  - `POST /api/analyze` (mulai analisis)
+  - `POST /api/analyze/diameter` (mulai Analisis Diameter)
+  - `POST /api/analyze/pressure` (mulai Analisis Pressure)
   - `GET /api/simulations/:jobId?analysisId=:id` (poll status backend job)
   - `GET /api/simulations/:jobId/result?analysisId=:id` (ambil hasil)
   - `GET /api/analyses/:analysisId` (ambil detail analisis dari riwayat)
+  - `GET /api/analyses/:analysisId/export?format=...` (download PDF/INP/XLS)
   - `POST /api/fix-pressure` (aksi “Fix Pressure”)
   - `fetch(url)` pada helper `urlToFile` untuk download file dari URL riwayat
 - **Komponen yang diimport:** `UploadZone`, `RecentAnalysesList`, `FileSelectedCard`, `ProcessingState`, `ResultsPanel`; hooks `useFilePreview`, `useTokenBalance`, `useToast`; `openBuyTokenModal`, constants token.
@@ -589,7 +591,7 @@
 - **Input:** Params: `jobId`; Query wajib `analysisId` (line 70–73).
 - **Output:** Sukses: `{ success:true, analysisId, summary, prv, files, filesV1, filesFinal, nodes, pipes, materials, networkInfo?, warnings?, diagnostics?, detailsTruncated, traceId }` (traceId selalu diinject). Error: `{ success:false, error, errorCode, traceId }` atau `{ error, traceId }`.
 - **DB:** Read `analyses` untuk validasi ownership; update `analyses.status="success"` (line 386) + write ringkasan counts; update `tokenBalances` untuk debit (line 363).
-- **Catatan penting:** Idempotent: jika `analysis.status === "success"`, route langsung return result tanpa debit ulang (lihat blok “Idempotency” tepat sebelum debit; [PERLU KONFIRMASI line]). Ada trace id header `x-trace-id`.
+- **Catatan penting:** Idempotent: jika `analysis.status === "success"`, route langsung return result tanpa debit ulang (lihat blok “Idempotency” tepat sebelum debit; [PERLU KONFIRMASI line]). Route juga menyimpan `embeddedFiles` (base64 `input.inp` / `optimized_v1.inp` / `report_v1.md` + optional `final`) ke `analysisSnapshots.payload` untuk fallback download jika file backend Python tidak tersedia.
 
 ## src/app/api/simulations/[jobId]/files/[name]/route.ts
 - **Method:** `GET`
@@ -638,7 +640,7 @@
   - `format=xlsx|excel`: HTML-as-XLS bytes (content-type `application/vnd.ms-excel`)
   - Error JSON: `{ error }` (401/400/402/404/500)
 - **DB:** Read `analyses` + `analysisSnapshots` (line 479–481); update `tokenBalances` untuk charge/refund (line 518–524; refund line 415–418).
-- **Catatan penting:** Catatan di backend result: download “sekarang melalui `/api/analyses/:analysisId/export` agar jobId tidak diekspos ke client” (lihat `/api/simulations/:jobId/result` line 310). [KRITIS]
+- **Catatan penting:** Download “sekarang melalui `/api/analyses/:analysisId/export` agar jobId tidak diekspos ke client” (lihat `/api/simulations/:jobId/result`). Export akan coba ambil file dari `analysisSnapshots.payload.embeddedFiles` (base64) terlebih dahulu; jika tidak ada baru fetch ke backend Python `/v1/simulations/:jobId/files/...`.
 
 ## src/app/api/token/balance/route.ts
 - **Method:** `GET`

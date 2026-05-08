@@ -39,6 +39,10 @@ function yyyymmdd(date: Date | null | undefined) {
   return iso.replaceAll("-", "");
 }
 
+function parseBase64Field(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function escapePdfText(value: string) {
   return value
     .replaceAll("—", "-")
@@ -483,11 +487,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
 
   const snapshot = (snapRows[0]?.payload ?? null) as any;
   const backendJobId = typeof snapshot?.backendJobId === "string" ? snapshot.backendJobId : null;
-  if (!backendJobId) {
-    return NextResponse.json({ error: "Result expired or unavailable" }, { status: 410 });
-  }
 
-  const hasFinalFiles = Boolean(snapshot?.filesFinal && (snapshot?.filesFinal as any)?.inpUrl);
+  const embedded = (snapshot?.embeddedFiles ?? null) as any;
+  const embeddedInputInpB64 = parseBase64Field(embedded?.inputInpB64);
+  const embeddedOptimizedV1InpB64 = parseBase64Field(embedded?.optimizedV1InpB64);
+  const embeddedOptimizedFinalInpB64 = parseBase64Field(embedded?.optimizedFinalInpB64);
+  const embeddedReportV1MdB64 = parseBase64Field(embedded?.reportV1MdB64);
+  const embeddedReportFinalMdB64 = parseBase64Field(embedded?.reportFinalMdB64);
+
+  const hasFinalFiles = Boolean(
+    (snapshot?.filesFinal && (snapshot?.filesFinal as any)?.inpUrl) || embeddedOptimizedFinalInpB64
+  );
 
   const variantResolved: z.infer<typeof VariantSchema> =
     variantRequested ??
@@ -547,29 +557,49 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
             ? "optimized_v1.inp"
             : "optimized_final.inp";
 
-      const backendUrl = buildPythonApiUrl(
-        req.url,
-        `/v1/simulations/${encodeURIComponent(backendJobId)}/files/${encodeURIComponent(
-          backendFile
-        )}`
-      );
+      const embeddedB64 =
+        backendFile === "input.inp"
+          ? embeddedInputInpB64
+          : backendFile === "optimized_final.inp"
+            ? embeddedOptimizedFinalInpB64
+            : embeddedOptimizedV1InpB64;
 
-      const res = await fetch(backendUrl, { method: "GET" });
-      if (!res.ok) {
-        const raw = await res.text();
-        const msg = parseErrorMessage(raw) || "File hasil tidak tersedia untuk analisis ini.";
-        if (charged) await refundTokens(db, userId, tokenCost);
-        return NextResponse.json(
-          { error: msg === "Not found" ? "File hasil tidak tersedia untuk analisis ini." : msg },
-          { status: res.status }
+      const bufFromEmbedded = embeddedB64
+        ? new Uint8Array(Buffer.from(embeddedB64, "base64"))
+        : null;
+      let buf: Uint8Array | null = bufFromEmbedded;
+
+      if (!buf) {
+        if (!backendJobId) {
+          if (charged) await refundTokens(db, userId, tokenCost);
+          return NextResponse.json({ error: "Result expired or unavailable" }, { status: 410 });
+        }
+
+        const backendUrl = buildPythonApiUrl(
+          req.url,
+          `/v1/simulations/${encodeURIComponent(backendJobId)}/files/${encodeURIComponent(
+            backendFile
+          )}`
         );
+
+        const res = await fetch(backendUrl, { method: "GET" });
+        if (!res.ok) {
+          const raw = await res.text();
+          const msg = parseErrorMessage(raw) || "File hasil tidak tersedia untuk analisis ini.";
+          if (charged) await refundTokens(db, userId, tokenCost);
+          return NextResponse.json(
+            { error: msg === "Not found" ? "File hasil tidak tersedia untuk analisis ini." : msg },
+            { status: res.status }
+          );
+        }
+
+        buf = new Uint8Array(await res.arrayBuffer());
       }
 
-      const buf = Buffer.from(await res.arrayBuffer());
       const headers = new Headers();
       headers.set("content-type", "application/octet-stream");
       headers.set("content-disposition", `attachment; filename="${fileStem}.inp"`);
-      return new Response(buf, { status: 200, headers });
+      return new Response(new Blob([buf as any]), { status: 200, headers });
     }
 
     // ─── PDF ──────────────────────────────────────────────────────────────────
@@ -771,17 +801,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ analysisId: st
     // ─── EXCEL (HTML served as .xls) ─────────────────────────────────────────
     const reportFile = variantResolved === "final" ? "report_final.md" : "report_v1.md";
     let reportText = "";
-    try {
-      const backendUrl = buildPythonApiUrl(
-        req.url,
-        `/v1/simulations/${encodeURIComponent(backendJobId)}/files/${encodeURIComponent(
-          reportFile
-        )}`
-      );
-      const res = await fetch(backendUrl, { method: "GET" });
-      if (res.ok) reportText = await res.text();
-    } catch {
-      reportText = "";
+
+    const embeddedReportB64 =
+      reportFile === "report_final.md" ? embeddedReportFinalMdB64 : embeddedReportV1MdB64;
+    if (embeddedReportB64) {
+      try {
+        reportText = Buffer.from(embeddedReportB64, "base64").toString("utf8");
+      } catch {
+        reportText = "";
+      }
+    } else if (backendJobId) {
+      try {
+        const backendUrl = buildPythonApiUrl(
+          req.url,
+          `/v1/simulations/${encodeURIComponent(backendJobId)}/files/${encodeURIComponent(
+            reportFile
+          )}`
+        );
+        const res = await fetch(backendUrl, { method: "GET" });
+        if (res.ok) reportText = await res.text();
+      } catch {
+        reportText = "";
+      }
     }
 
     const summary = snapshot?.summary ?? {};

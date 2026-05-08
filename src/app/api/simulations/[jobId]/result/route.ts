@@ -34,6 +34,21 @@ async function fetchJson(res: Response) {
   }
 }
 
+async function tryFetchSimulationFileBase64(reqUrl: string, jobId: string, name: string) {
+  const url = buildPythonApiUrl(
+    reqUrl,
+    `/v1/simulations/${encodeURIComponent(jobId)}/files/${encodeURIComponent(name)}`
+  );
+  try {
+    const res = await fetch(url, { method: "GET", signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    return buf.toString("base64");
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }> }) {
   const traceId = randomUUID();
   const traceTag = `[trace:${traceId}]`;
@@ -480,14 +495,31 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
     } catch {
     }
 
-  const sourceFileUrl = `${fileBase}/input.inp`;
+    const sourceFileUrl = `${fileBase}/input.inp`;
 
   try {
-    const payload = {
-      analysisId,
-      fileName: result.summary?.fileName ?? analysis.fileName,
-      sourceFileName: analysis.fileName,
-      sourceFileUrl,
+      const embeddedFilesRaw = {
+        inputInpB64: await tryFetchSimulationFileBase64(req.url, jobId, "input.inp"),
+        optimizedV1InpB64: await tryFetchSimulationFileBase64(req.url, jobId, "optimized_v1.inp"),
+        reportV1MdB64: await tryFetchSimulationFileBase64(req.url, jobId, "report_v1.md"),
+        optimizedFinalInpB64: filesFinal
+          ? await tryFetchSimulationFileBase64(req.url, jobId, "optimized_final.inp")
+          : null,
+        reportFinalMdB64: filesFinal
+          ? await tryFetchSimulationFileBase64(req.url, jobId, "report_final.md")
+          : null
+      };
+
+      const embeddedFiles =
+        Object.values(embeddedFilesRaw).some((v) => typeof v === "string" && v)
+          ? embeddedFilesRaw
+          : null;
+
+      const payload = {
+        analysisId,
+        fileName: result.summary?.fileName ?? analysis.fileName,
+        sourceFileName: analysis.fileName,
+        sourceFileUrl,
       summary: result.summary,
       prv: result.prv,
       files,
@@ -501,7 +533,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ jobId: string }
       engineUsed: pythonJson.engineUsed ?? "wntr",
       networkInfo: (result as any).networkInfo,
       detailsTruncated,
-      backendJobId: jobId
+      backendJobId: jobId,
+      embeddedFiles
     };
     await upsertAnalysisSnapshot(db, analysisId, payload);
   } catch {
